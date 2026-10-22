@@ -2,7 +2,7 @@ import Foundation
 
 /// A chat, or one turn of it, as Markdown. The model's replies are already Markdown, so they
 /// are written as they are. Reasoning goes in a `<details>` block, which folds up in most
-/// Markdown viewers. Images are saved as files beside the Markdown; documents are listed by name.
+/// Markdown viewers, unless `includeThinking` is off for a shorter file. Images are saved as files beside the Markdown; documents are listed by name.
 struct KapitsaChatExport: Equatable {
     struct Image: Equatable {
         /// The path the Markdown links to, relative to the Markdown file.
@@ -14,8 +14,8 @@ struct KapitsaChatExport: Equatable {
     let images: [Image]
     let suggestedFileName: String
 
-    init(messages: [KapitsaChatMessage], exportedAt: Date = Date(), imagesFolderName: String? = nil,
-         timeZone: TimeZone = .current) {
+    init(messages: [KapitsaChatMessage], includeThinking: Bool = true, exportedAt: Date = Date(),
+         imagesFolderName: String? = nil, timeZone: TimeZone = .current) {
         let fileName = Self.fileName(for: messages)
         let folder = imagesFolderName ?? Self.imagesFolderName(forMarkdownNamed: fileName)
         var images: [Image] = []
@@ -49,7 +49,7 @@ struct KapitsaChatExport: Equatable {
                 if let level = message.thinking { detail.append("Thinking: \(level.label)") }
                 lines.append(Self.heading("Kapitsa", detail: detail, sentAt: message.sentAt, timeZone: timeZone))
                 lines.append("")
-                if !message.reasoning.isEmpty {
+                if includeThinking && !message.reasoning.isEmpty {
                     let summary = message.stats?.thinkingSeconds.map {
                         "Thought for " + $0.formatted(.number.precision(.fractionLength(1))) + " s"
                     } ?? "Thoughts"

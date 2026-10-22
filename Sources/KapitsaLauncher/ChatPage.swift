@@ -160,10 +160,16 @@ struct ChatPage: View {
         panel.nameFieldStringValue = KapitsaChatExport(messages: messages).suggestedFileName
         panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
         panel.canCreateDirectories = true
+        let excludeThinking = NSButton(checkboxWithTitle: "Exclude thinking", target: nil, action: nil)
+        excludeThinking.state = UserDefaults.standard.bool(forKey: Self.excludeThinkingKey) ? .on : .off
+        excludeThinking.toolTip = "Leave out the model's reasoning for a shorter file"
+        panel.accessoryView = Self.accessory(excludeThinking)
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        UserDefaults.standard.set(excludeThinking.state == .on, forKey: Self.excludeThinkingKey)
         // Name the images folder after the file actually chosen.
         let export = KapitsaChatExport(
             messages: messages,
+            includeThinking: excludeThinking.state == .off,
             imagesFolderName: KapitsaChatExport.imagesFolderName(forMarkdownNamed: url.lastPathComponent))
         do {
             try export.write(to: url)
@@ -171,6 +177,20 @@ struct ChatPage: View {
         } catch {
             exportError = "Couldn't save the export: \(error.localizedDescription)"
         }
+    }
+
+    private static let excludeThinkingKey = "exportExcludesThinking"
+
+    /// The Save dialog's extra options, with some room around them.
+    private static func accessory(_ control: NSView) -> NSView {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 40))
+        control.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(control)
+        NSLayoutConstraint.activate([
+            control.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            control.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+        ])
+        return container
     }
 
     private func send() {

@@ -45,7 +45,8 @@ A native macOS app for starting, stopping and monitoring a local
     adds to the message. Scanned PDFs without a text layer can't be read.
   - **Export as Markdown:** the whole chat (Export) or one question and reply (the button
     under each reply). Replies keep their full Markdown, tables and code blocks included;
-    reasoning goes in a foldable `<details>` block; images are saved in a folder beside the
+    reasoning goes in a foldable `<details>` block, or is left out with **Exclude thinking** in
+    the Save dialog; images are saved in a folder beside the
     file; documents are listed by name.
   - **Outline:** a panel beside the chat lists each question, numbered, with the headings of
     its reply; click one to jump to it. Fold a question's headings with its chevron, or all of

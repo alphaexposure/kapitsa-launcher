@@ -63,6 +63,14 @@ final class KapitsaChatExportTests: XCTestCase {
         XCTAssertEqual(export.images.map(\.relativePath), ["What is in the picture images/01-flask (1).jpg"])
     }
 
+    func testExcludingThinkingDropsTheReasoningOnly() {
+        let export = KapitsaChatExport(messages: conversation(), includeThinking: false, exportedAt: sent, timeZone: utc)
+        XCTAssertFalse(export.markdown.contains("<details>"))
+        XCTAssertFalse(export.markdown.contains("Look closely."))
+        XCTAssertTrue(export.markdown.contains("## Kapitsa · qwen3.8-27b · Thinking: Medium · 2026-10-22 16:00\n\n| A | B |"))
+        XCTAssertTrue(export.markdown.contains("<sub>288 tokens · 21.3 tok/s</sub>"))
+    }
+
     func testSingleTurnTakesTheQuestionAndItsReply() {
         let messages = conversation()
         let turn = KapitsaChatExport.turn(endingWith: messages[3].id, in: messages)
