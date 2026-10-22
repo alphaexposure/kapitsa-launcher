@@ -233,23 +233,39 @@ private struct ChatHistory: View, Equatable {
 }
 
 /// The questions asked so far, numbered, each with the headings of its reply. Clicking one
-/// scrolls the chat to it. Equatable for the same reason as `ChatHistory`.
+/// scrolls the chat to it, and each question's headings fold away with its chevron.
+/// Equatable for the same reason as `ChatHistory`.
 private struct ChatOutlineView: View, Equatable {
     let messages: [KapitsaChatMessage]
     let onSelect: (UUID) -> Void
+    /// Questions whose headings are folded away. Kept here, not in the rows, so the lazy list
+    /// doesn't forget them when a row scrolls out of view.
+    @State private var collapsed: Set<UUID> = []
 
     static func == (lhs: ChatOutlineView, rhs: ChatOutlineView) -> Bool { lhs.messages == rhs.messages }
 
     var body: some View {
         let entries = KapitsaChatOutline.entries(from: messages)
         VStack(alignment: .leading, spacing: 0) {
-            Text("Outline · \(entries.count) \(entries.count == 1 ? "question" : "questions")")
-                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 6)
+            let foldable = entries.filter { !$0.headings.isEmpty }.map(\.id)
+            let allCollapsed = !foldable.isEmpty && foldable.allSatisfy(collapsed.contains)
+            HStack {
+                Text("Outline · \(entries.count) \(entries.count == 1 ? "question" : "questions")")
+                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Spacer()
+                if !foldable.isEmpty {
+                    Button(allCollapsed ? "Expand all" : "Collapse all") {
+                        collapsed = allCollapsed ? [] : Set(foldable)
+                    }
+                    .buttonStyle(.plain).font(.caption).foregroundStyle(KapitsaTheme.accent)
+                }
+            }
+            .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 6)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
                     ForEach(entries) { entry in
-                        ChatOutlineRow(entry: entry) { onSelect($0) }
+                        ChatOutlineRow(entry: entry, isCollapsed: collapsed.contains(entry.id),
+                                       onToggle: { toggle(entry.id) }, onSelect: onSelect)
                     }
                 }
                 .padding(.horizontal, 6).padding(.bottom, 10)
@@ -258,30 +274,52 @@ private struct ChatOutlineView: View, Equatable {
         .background(KapitsaTheme.panel, in: RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(KapitsaTheme.border, lineWidth: 1))
     }
+
+    private func toggle(_ id: UUID) {
+        if collapsed.contains(id) { collapsed.remove(id) } else { collapsed.insert(id) }
+    }
 }
 
 private struct ChatOutlineRow: View {
     let entry: KapitsaChatOutline.Entry
+    let isCollapsed: Bool
+    let onToggle: () -> Void
     let onSelect: (UUID) -> Void
     @State private var hovered: Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
-            item(entry.id, key: -1) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text("\(entry.number)").font(.caption.weight(.semibold)).monospacedDigit()
-                        .foregroundStyle(KapitsaTheme.accent).frame(minWidth: 16, alignment: .trailing)
-                    Text(entry.question).font(.callout).lineLimit(2)
-                    if entry.attachmentCount > 0 {
-                        Image(systemName: "paperclip").font(.caption2).foregroundStyle(.secondary)
+            HStack(alignment: .top, spacing: 0) {
+                if entry.headings.isEmpty {
+                    Color.clear.frame(width: 18, height: 1)
+                } else {
+                    Button(action: onToggle) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+                            .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                            .frame(width: 18, height: 22)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(isCollapsed ? "Show this reply's headings" : "Hide this reply's headings")
+                    .accessibilityLabel(isCollapsed ? "Expand question \(entry.number)" : "Collapse question \(entry.number)")
+                }
+                item(entry.id, key: -1) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text("\(entry.number)").font(.caption.weight(.semibold)).monospacedDigit()
+                            .foregroundStyle(KapitsaTheme.accent).frame(minWidth: 16, alignment: .trailing)
+                        Text(entry.question).font(.callout).lineLimit(2)
+                        if entry.attachmentCount > 0 {
+                            Image(systemName: "paperclip").font(.caption2).foregroundStyle(.secondary)
+                        }
                     }
                 }
             }
-            if let replyID = entry.replyID {
+            if let replyID = entry.replyID, !isCollapsed {
                 ForEach(Array(entry.headings.enumerated()), id: \.offset) { index, heading in
                     item(replyID, key: index) {
                         Text(heading).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                            .padding(.leading, 22)
+                            .padding(.leading, 40)
                     }
                 }
             }
