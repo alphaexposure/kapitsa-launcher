@@ -1,0 +1,93 @@
+# Kapitsa Launcher
+
+A native macOS app for starting, stopping and monitoring a local
+[Kapitsa](https://github.com/nace-ai/kapitsa) model server, without the command line.
+
+> **Unofficial.** Kapitsa Launcher is an independent project. It is not made by,
+> affiliated with, or endorsed by the developers of Kapitsa. It controls an existing
+> Kapitsa installation and never installs, updates or modifies Kapitsa itself.
+
+## Install
+
+1. **Install Kapitsa**, for example with Homebrew:
+
+   ```bash
+   brew install nace-ai/tap/kapitsa
+   ```
+
+   Kapitsa Launcher doesn't install Kapitsa for you; if it can't find `kapitsa`, it says so
+   and links to the project page.
+2. **Build Kapitsa Launcher** with Xcode 15.3 or later, or the Command Line Tools:
+
+   ```bash
+   zsh Scripts/build-app.zsh
+   open "dist/Kapitsa Launcher.app"
+   ```
+
+## How it fits together
+
+- **Kapitsa** runs Qwen and Nemotron models on Apple silicon and serves OpenAI- and
+  Anthropic-compatible APIs plus a chat page.
+- **Kapitsa Launcher** (this app) starts `kapitsa serve`, stops it, and shows what it is
+  doing. It doesn't run models itself; your chat apps and coding agents talk to Kapitsa
+  directly.
+
+## Features
+
+- **Start, stop and restart** Kapitsa with one click, and open its chat page.
+- **Settings:** model (best for this Mac, downloaded, catalog or custom), host, port, API
+  model name, context, slots, speculative drafter, memory budget, prefill chunk, SSD prefix
+  cache, model switching, and an optional API key stored in the macOS Keychain.
+- **Live overview:**
+  - Engine details Kapitsa prints at startup: loaded model, context and slots, memory
+    allocated, memory budget, KV cache room, GPU and decoding mode.
+  - Token activity for the whole server session, with prefix cache hits.
+  - A **Latest request** panel: prompt, cached and output tokens, prefill and decode time,
+    speeds and tokens per draft cycle.
+- **Downloaded models** with their size on disk, and the SSD prefix cache size.
+- **Server output** log with auto-scroll, Copy, and any API key redacted.
+- **Menu bar** control to reopen the window or stop the server.
+- **Optional extras:** launch at login, and a light, dark or system appearance.
+
+## Requirements
+
+- macOS 14 or later on Apple silicon.
+- Kapitsa 0.2 or later. The launcher looks for `kapitsa` in `/opt/homebrew/bin` and
+  `~/.local/bin`, or you can choose the executable in Settings.
+- To build: Xcode 15.3+ or a Swift 5.10+ toolchain.
+
+## Development
+
+`Scripts/build-app.zsh` builds a release binary and packages it as
+`dist/Kapitsa Launcher.app`, ad-hoc signed for local use. `swift build` and `swift test`
+compile and test the code but don't update the app bundle. Running the tests needs full
+Xcode, because the Command Line Tools don't include XCTest.
+
+```bash
+swift test
+```
+
+## How it behaves
+
+- **Local by default:** binds to `127.0.0.1` on port `8000`, so only this Mac can
+  connect. Change the host deliberately if you want other devices to reach it.
+- **Only stops what it started:** the launcher stops a Kapitsa process only if it
+  launched that process itself. A server started elsewhere, such as the Homebrew service,
+  is never stopped; the launcher reports the port as in use instead.
+- **No shell:** Kapitsa is launched directly with an explicit argument list, never
+  through a shell.
+- **Keys stay hidden:** the API key is kept in the Keychain, passed to Kapitsa through
+  `KAPITSA_API_KEY` in its environment (never as `--api-key`), and redacted from the log view.
+- **Overview numbers come from Kapitsa's output:** Kapitsa's `/health` endpoint only says
+  whether it is serving, so engine details and request figures are read from the lines it
+  prints. They only appear for servers this app started. Values marked "≈" are calculated.
+
+## Credits
+
+The mark, a K beside a drop of liquid helium, is drawn in code from a single source,
+[`KapitsaMark.swift`](Sources/KapitsaLauncher/KapitsaMark.swift), which produces the app icon,
+the sidebar mark and the menu bar symbol.
+
+## License
+
+[MIT](LICENSE)

@@ -1,0 +1,31 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Show toolchain
+        run: swift --version
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
+      - name: Package the app
+        run: zsh Scripts/build-app.zsh
+      - name: Launch the packaged app
+        run: |
+          # Run a copy from another folder with the build folder hidden, as on a user's Mac.
+          ditto "dist/Kapitsa Launcher.app" "launch-check/Kapitsa Launcher.app"
+          mv .build .build-hidden
+          zsh Scripts/smoke-test-app.zsh "launch-check/Kapitsa Launcher.app"
