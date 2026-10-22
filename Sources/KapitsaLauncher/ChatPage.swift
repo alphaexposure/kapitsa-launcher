@@ -9,6 +9,7 @@ struct ChatPage: View {
     @ObservedObject var chat: KapitsaChatController
     @State private var isDropTargeted = false
     @State private var exportError: String?
+    @AppStorage("chatOutlineShown") private var outlineShown = true
     @FocusState private var composerFocused: Bool
     private let endID = "chat-end"
 
@@ -37,6 +38,9 @@ struct ChatPage: View {
             .labelsHidden()
             .frame(width: 320)
             Spacer()
+            Toggle(isOn: $outlineShown) { Label("Outline", systemImage: "sidebar.right") }
+                .toggleStyle(.button)
+                .help("Show or hide the list of questions")
             Button { export(chat.messages) } label: { Label("Export", systemImage: "square.and.arrow.up") }
                 .disabled(chat.messages.isEmpty || chat.isStreaming)
                 .help("Save the whole chat as a Markdown file")
@@ -48,38 +52,50 @@ struct ChatPage: View {
 
     private var conversation: some View {
         ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 18) {
-                    if chat.messages.isEmpty && chat.liveReply == nil {
-                        VStack(spacing: 10) {
-                            KapitsaMarkShape().fill(KapitsaTheme.accent.opacity(0.5)).frame(width: 34, height: 34)
-                            Text("Ask anything. Drop images or documents here to include them.")
-                                .font(.callout).foregroundStyle(.secondary)
+            HStack(alignment: .top, spacing: 12) {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 18) {
+                        if chat.messages.isEmpty && chat.liveReply == nil {
+                            VStack(spacing: 10) {
+                                KapitsaMarkShape().fill(KapitsaTheme.accent.opacity(0.5)).frame(width: 34, height: 34)
+                                Text("Ask anything. Drop images or documents here to include them.")
+                                    .font(.callout).foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity).padding(.top, 80)
                         }
-                        .frame(maxWidth: .infinity).padding(.top, 80)
+                        // Finished messages don't change while a reply streams; comparing them is
+                        // cheap, so SwiftUI skips redrawing them on each update.
+                        ChatHistory(messages: chat.messages) { id in
+                            export(KapitsaChatExport.turn(endingWith: id, in: chat.messages))
+                        }
+                        .equatable()
+                        if let live = chat.liveReply {
+                            ChatMessageView(message: live, isLive: true, onExport: {})
+                                .id(live.id)
+                        }
+                        Color.clear.frame(height: 1).id(endID)
                     }
-                    // Finished messages don't change while a reply streams; comparing them is
-                    // cheap, so SwiftUI skips redrawing them on each update.
-                    ChatHistory(messages: chat.messages) { id in
-                        export(KapitsaChatExport.turn(endingWith: id, in: chat.messages))
+                    .padding(18)
+                }
+                .background(KapitsaTheme.panel, in: RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14)
+                    .stroke(isDropTargeted ? KapitsaTheme.accent : KapitsaTheme.border, lineWidth: isDropTargeted ? 2 : 1))
+                .onAppear { proxy.scrollTo(endID, anchor: .bottom) }
+                // Cheap to compare: a count and two byte lengths, not the whole conversation.
+                .onChange(of: chat.messages.count) { proxy.scrollTo(endID, anchor: .bottom) }
+                .onChange(of: (chat.liveReply?.text.utf8.count ?? 0) + (chat.liveReply?.reasoning.utf8.count ?? 0)) {
+                    proxy.scrollTo(endID, anchor: .bottom)
+                }
+                if outlineShown && !chat.messages.isEmpty {
+                    ChatOutlineView(messages: chat.messages) { id in
+                        // The lazy list guesses the height of rows it hasn't drawn, so the first
+                        // jump can land short; once those rows are drawn, a second one is exact.
+                        proxy.scrollTo(id, anchor: .top)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { proxy.scrollTo(id, anchor: .top) }
                     }
                     .equatable()
-                    if let live = chat.liveReply {
-                        ChatMessageView(message: live, isLive: true, onExport: {})
-                            .id(live.id)
-                    }
-                    Color.clear.frame(height: 1).id(endID)
+                    .frame(width: 240)
                 }
-                .padding(18)
-            }
-            .background(KapitsaTheme.panel, in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14)
-                .stroke(isDropTargeted ? KapitsaTheme.accent : KapitsaTheme.border, lineWidth: isDropTargeted ? 2 : 1))
-            .onAppear { proxy.scrollTo(endID, anchor: .bottom) }
-            // Cheap to compare: a count and two byte lengths, not the whole conversation.
-            .onChange(of: chat.messages.count) { proxy.scrollTo(endID, anchor: .bottom) }
-            .onChange(of: (chat.liveReply?.text.utf8.count ?? 0) + (chat.liveReply?.reasoning.utf8.count ?? 0)) {
-                proxy.scrollTo(endID, anchor: .bottom)
             }
         }
     }
@@ -213,6 +229,77 @@ private struct ChatHistory: View, Equatable {
             ChatMessageView(message: message, isLive: false) { onExport(message.id) }
                 .id(message.id)
         }
+    }
+}
+
+/// The questions asked so far, numbered, each with the headings of its reply. Clicking one
+/// scrolls the chat to it. Equatable for the same reason as `ChatHistory`.
+private struct ChatOutlineView: View, Equatable {
+    let messages: [KapitsaChatMessage]
+    let onSelect: (UUID) -> Void
+
+    static func == (lhs: ChatOutlineView, rhs: ChatOutlineView) -> Bool { lhs.messages == rhs.messages }
+
+    var body: some View {
+        let entries = KapitsaChatOutline.entries(from: messages)
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Outline · \(entries.count) \(entries.count == 1 ? "question" : "questions")")
+                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 6)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 2) {
+                    ForEach(entries) { entry in
+                        ChatOutlineRow(entry: entry) { onSelect($0) }
+                    }
+                }
+                .padding(.horizontal, 6).padding(.bottom, 10)
+            }
+        }
+        .background(KapitsaTheme.panel, in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(KapitsaTheme.border, lineWidth: 1))
+    }
+}
+
+private struct ChatOutlineRow: View {
+    let entry: KapitsaChatOutline.Entry
+    let onSelect: (UUID) -> Void
+    @State private var hovered: Int?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            item(entry.id, key: -1) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("\(entry.number)").font(.caption.weight(.semibold)).monospacedDigit()
+                        .foregroundStyle(KapitsaTheme.accent).frame(minWidth: 16, alignment: .trailing)
+                    Text(entry.question).font(.callout).lineLimit(2)
+                    if entry.attachmentCount > 0 {
+                        Image(systemName: "paperclip").font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            if let replyID = entry.replyID {
+                ForEach(Array(entry.headings.enumerated()), id: \.offset) { index, heading in
+                    item(replyID, key: index) {
+                        Text(heading).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            .padding(.leading, 22)
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    /// A row that scrolls to `target` when clicked; headings jump to the start of their reply.
+    private func item(_ target: UUID, key: Int, @ViewBuilder content: () -> some View) -> some View {
+        Button { onSelect(target) } label: {
+            content()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 6).padding(.vertical, 4)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(hovered == key ? KapitsaTheme.inset : .clear, in: RoundedRectangle(cornerRadius: 6))
+        .onHover { hovered = $0 ? key : (hovered == key ? nil : hovered) }
     }
 }
 

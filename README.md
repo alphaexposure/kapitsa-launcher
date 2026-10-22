@@ -47,6 +47,8 @@ A native macOS app for starting, stopping and monitoring a local
     under each reply). Replies keep their full Markdown, tables and code blocks included;
     reasoning goes in a foldable `<details>` block; images are saved in a folder beside the
     file; documents are listed by name.
+  - **Outline:** a panel beside the chat lists each question, numbered, with the headings of
+    its reply; click one to jump to it. Hide it with the Outline button.
   - The conversation is kept between launches, in
     `~/Library/Application Support/KapitsaLauncher/chat.json`.
 - **Settings:** model (best for this Mac, downloaded, catalog or custom), host, port, API

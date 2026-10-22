@@ -1,0 +1,75 @@
+import Foundation
+
+/// A table of contents for a chat: one entry per question, with the headings of its reply,
+/// so a long conversation can be scanned and jumped through.
+enum KapitsaChatOutline {
+    struct Entry: Equatable, Identifiable {
+        /// The question's message, which the outline scrolls to.
+        let id: UUID
+        let number: Int
+        let question: String
+        var replyID: UUID?
+        var headings: [String] = []
+        var attachmentCount = 0
+    }
+
+    static let questionLength = 90
+
+    static func entries(from messages: [KapitsaChatMessage]) -> [Entry] {
+        var entries: [Entry] = []
+        for message in messages {
+            switch message.role {
+            case .user:
+                entries.append(Entry(id: message.id, number: entries.count + 1, question: question(for: message),
+                                     attachmentCount: message.attachments.count))
+            case .assistant:
+                // A reply belongs to the question before it; one without a question gets its own entry.
+                if entries.last?.replyID != nil || entries.isEmpty {
+                    entries.append(Entry(id: message.id, number: entries.count + 1, question: "Reply"))
+                }
+                entries[entries.count - 1].replyID = message.id
+                entries[entries.count - 1].headings = headings(in: message.text)
+            }
+        }
+        return entries
+    }
+
+    /// The first line of the question, shortened; attachment names when there is no text.
+    static func question(for message: KapitsaChatMessage) -> String {
+        let firstLine = message.text.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty }
+        guard let firstLine else {
+            return message.attachments.map(\.name).joined(separator: ", ").nonEmpty ?? "Empty message"
+        }
+        guard firstLine.count > questionLength else { return firstLine }
+        return String(firstLine.prefix(questionLength)).trimmingCharacters(in: .whitespaces) + "…"
+    }
+
+    /// Markdown headings (#, ## and ###) outside code blocks, with their emphasis marks removed.
+    static func headings(in text: String) -> [String] {
+        var headings: [String] = []
+        var inCodeBlock = false
+        for line in text.split(whereSeparator: \.isNewline) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
+                inCodeBlock.toggle()
+                continue
+            }
+            guard !inCodeBlock else { continue }
+            let hashes = trimmed.prefix { $0 == "#" }.count
+            guard (1...3).contains(hashes), trimmed.dropFirst(hashes).first == " " else { continue }
+            let heading = trimmed.dropFirst(hashes)
+                .replacingOccurrences(of: "**", with: "")
+                .replacingOccurrences(of: "__", with: "")
+                .replacingOccurrences(of: "`", with: "")
+                .trimmingCharacters(in: CharacterSet(charactersIn: "# ").union(.whitespaces))
+            if !heading.isEmpty { headings.append(heading) }
+        }
+        return headings
+    }
+}
+
+private extension String {
+    var nonEmpty: String? { isEmpty ? nil : self }
+}
