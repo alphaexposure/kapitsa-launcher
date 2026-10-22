@@ -106,7 +106,9 @@ struct OverviewPage: View {
             let hasActivity = totals.requests > 0
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
                 metricCard("Prompt tokens processed", value: hasActivity ? totals.prefilledTokens.formatted() : "—",
-                           detail: hasActivity ? "\(totals.cachedTokens.formatted()) more reused from cache" : "cumulative prefill tokens",
+                           detail: !hasActivity ? "cumulative prefill tokens"
+                               : totals.cachedTokens == 0 ? "none reused from cache"
+                               : "\(totals.cachedTokens.formatted()) more reused from cache",
                            symbol: "text.badge.plus",
                            help: "Prompt tokens Kapitsa had to process across all requests. Tokens reused from its prefix cache (in memory or on the SSD) are counted separately. Resets when the server restarts.")
                 metricCard("Output tokens generated", value: hasActivity ? totals.outputTokens.formatted() : "—",
