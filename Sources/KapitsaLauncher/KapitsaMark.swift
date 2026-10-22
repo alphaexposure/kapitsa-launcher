@@ -1,34 +1,48 @@
 import AppKit
 import SwiftUI
 
-/// The Kapitsa Launcher mark: a rounded K beside a drop, for liquid helium.
+/// The Kapitsa Launcher mark: a round-bottomed flask of superfluid helium, whose surface
+/// climbs the walls the way the film Kapitsa studied creeps up its container.
 /// This file is the single source for the app icon, the sidebar mark and the menu bar symbol,
 /// and is compiled into `Scripts/make-icon` as well as the app.
 enum KapitsaMark {
     /// The mark's design space (y down), the same as the app icon's 1024-point canvas.
     static let conceptTile = CGRect(x: 100, y: 100, width: 824, height: 824)
 
-    /// The K's strokes and the drop, merged into one outline in concept space (y down).
+    /// The flask's outline and the liquid inside, merged into one shape in concept space (y down).
     static let conceptPath: CGPath = {
-        let strokes = CGMutablePath()
-        strokes.move(to: CGPoint(x: 330, y: 250))
-        strokes.addLine(to: CGPoint(x: 330, y: 774))
-        strokes.move(to: CGPoint(x: 660, y: 250))
-        strokes.addLine(to: CGPoint(x: 400, y: 512))
-        strokes.addLine(to: CGPoint(x: 680, y: 774))
-        let k = strokes.copy(strokingWithWidth: 118, lineCap: .round, lineJoin: .round, miterLimit: 10)
+        let centre = CGPoint(x: 512, y: 600)
+        let radius: CGFloat = 250, neckHalfWidth: CGFloat = 70, neckTop: CGFloat = 210, wall: CGFloat = 56
+        // Where the neck meets the bulb.
+        let shoulder = (radius * radius - neckHalfWidth * neckHalfWidth).squareRoot()
+        let left = CGPoint(x: centre.x - neckHalfWidth, y: centre.y - shoulder)
+        let right = CGPoint(x: centre.x + neckHalfWidth, y: centre.y - shoulder)
 
-        // A drop: a circle drawn to a point at the top.
-        let drop = CGMutablePath()
-        let centre = CGPoint(x: 735, y: 520), radius: CGFloat = 52
-        drop.move(to: CGPoint(x: centre.x, y: centre.y - radius * 2.1))
-        drop.addQuadCurve(to: CGPoint(x: centre.x + radius, y: centre.y),
-                          control: CGPoint(x: centre.x + radius * 0.95, y: centre.y - radius * 0.9))
-        drop.addArc(center: centre, radius: radius, startAngle: 0, endAngle: .pi, clockwise: false)
-        drop.addQuadCurve(to: CGPoint(x: centre.x, y: centre.y - radius * 2.1),
-                          control: CGPoint(x: centre.x - radius * 0.95, y: centre.y - radius * 0.9))
-        drop.closeSubpath()
-        return k.union(drop)
+        let glass = CGMutablePath()
+        glass.move(to: CGPoint(x: left.x, y: neckTop))
+        glass.addLine(to: left)
+        // Angles grow clockwise on screen (y down), so decreasing them passes under the bulb.
+        glass.addArc(center: centre, radius: radius,
+                     startAngle: atan2(left.y - centre.y, left.x - centre.x),
+                     endAngle: atan2(right.y - centre.y, right.x - centre.x), clockwise: true)
+        glass.addLine(to: CGPoint(x: right.x, y: neckTop))
+        glass.move(to: CGPoint(x: centre.x - 112, y: neckTop))   // the lip
+        glass.addLine(to: CGPoint(x: centre.x + 112, y: neckTop))
+        let outline = glass.copy(strokingWithWidth: wall, lineCap: .round, lineJoin: .round, miterLimit: 10)
+
+        // The liquid fills the bulb, leaving a gap inside the glass. Its surface dips in the
+        // middle and climbs both walls.
+        let inner = radius - wall / 2 - 26
+        let bulb = CGPath(ellipseIn: CGRect(x: centre.x - inner, y: centre.y - inner,
+                                            width: inner * 2, height: inner * 2), transform: nil)
+        let below = CGMutablePath()
+        below.move(to: CGPoint(x: centre.x - inner - 10, y: centre.y - 175))
+        below.addQuadCurve(to: CGPoint(x: centre.x + inner + 10, y: centre.y - 175),
+                           control: CGPoint(x: centre.x, y: centre.y - 10))
+        below.addLine(to: CGPoint(x: centre.x + inner + 10, y: centre.y + inner + 10))
+        below.addLine(to: CGPoint(x: centre.x - inner - 10, y: centre.y + inner + 10))
+        below.closeSubpath()
+        return outline.union(bulb.intersection(below))
     }()
 
     /// The mark scaled to fit `rect` without distortion, centred (y down, as in SwiftUI).

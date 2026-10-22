@@ -84,7 +84,7 @@ swift test
 
 ## Credits
 
-The mark, a K beside a drop of liquid helium, is drawn in code from a single source,
+The mark, a flask of superfluid helium whose surface climbs the glass, is drawn in code from a single source,
 [`KapitsaMark.swift`](Sources/KapitsaLauncher/KapitsaMark.swift), which produces the app icon,
 the sidebar mark and the menu bar symbol.
 
