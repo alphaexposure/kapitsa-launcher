@@ -48,6 +48,8 @@ A native macOS app for starting, stopping and monitoring a local
     reasoning goes in a foldable `<details>` block, or is left out with **Exclude thinking** in
     the Save dialog; images are saved in a folder beside the
     file; documents are listed by name.
+  - **Auto-scroll:** follows the reply as it streams; turn it off to read earlier turns while
+    the model works. Sending a message still shows it.
   - **Outline:** a panel beside the chat lists each question, numbered, with the headings of
     its reply; click one to jump to it. Fold a question's headings with its chevron, or all of
     them at once, and hide the panel with the Outline button.

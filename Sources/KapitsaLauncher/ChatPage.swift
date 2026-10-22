@@ -10,6 +10,7 @@ struct ChatPage: View {
     @State private var isDropTargeted = false
     @State private var exportError: String?
     @AppStorage("chatOutlineShown") private var outlineShown = true
+    @AppStorage("chatAutoScroll") private var autoScroll = true
     @FocusState private var composerFocused: Bool
     private let endID = "chat-end"
 
@@ -38,6 +39,9 @@ struct ChatPage: View {
             .labelsHidden()
             .frame(width: 320)
             Spacer()
+            Toggle(isOn: $autoScroll) { Label("Auto-scroll", systemImage: "arrow.down.to.line") }
+                .toggleStyle(.button)
+                .help("Follow the reply as it's written. Turn off to read earlier turns while the model works.")
             Toggle(isOn: $outlineShown) { Label("Outline", systemImage: "sidebar.right") }
                 .toggleStyle(.button)
                 .help("Show or hide the list of questions")
@@ -81,11 +85,15 @@ struct ChatPage: View {
                 .overlay(RoundedRectangle(cornerRadius: 14)
                     .stroke(isDropTargeted ? KapitsaTheme.accent : KapitsaTheme.border, lineWidth: isDropTargeted ? 2 : 1))
                 .onAppear { proxy.scrollTo(endID, anchor: .bottom) }
-                // Cheap to compare: a count and two byte lengths, not the whole conversation.
-                .onChange(of: chat.messages.count) { proxy.scrollTo(endID, anchor: .bottom) }
-                .onChange(of: (chat.liveReply?.text.utf8.count ?? 0) + (chat.liveReply?.reasoning.utf8.count ?? 0)) {
-                    proxy.scrollTo(endID, anchor: .bottom)
+                // Cheap to compare: an ID and two byte lengths, not the whole conversation.
+                // Sending always shows the new question; following the reply is optional.
+                .onChange(of: chat.messages.last?.id) {
+                    if autoScroll || chat.messages.last?.role == .user { proxy.scrollTo(endID, anchor: .bottom) }
                 }
+                .onChange(of: (chat.liveReply?.text.utf8.count ?? 0) + (chat.liveReply?.reasoning.utf8.count ?? 0)) {
+                    if autoScroll { proxy.scrollTo(endID, anchor: .bottom) }
+                }
+                .onChange(of: autoScroll) { if autoScroll { proxy.scrollTo(endID, anchor: .bottom) } }
                 if outlineShown && !chat.messages.isEmpty {
                     ChatOutlineView(messages: chat.messages) { id in
                         // The lazy list guesses the height of rows it hasn't drawn, so the first
