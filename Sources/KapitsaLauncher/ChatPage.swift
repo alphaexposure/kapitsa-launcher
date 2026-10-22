@@ -94,7 +94,7 @@ struct ChatPage: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { proxy.scrollTo(id, anchor: .top) }
                     }
                     .equatable()
-                    .frame(width: 240)
+                    .frame(width: 290)
                 }
             }
         }

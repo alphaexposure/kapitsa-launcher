@@ -38,7 +38,8 @@ struct ContentView: View {
             ChatPage(controller: controller, chat: chat)
                 .padding(.horizontal, 30)
                 .padding(.bottom, 24)
-                .frame(maxWidth: 1000, maxHeight: .infinity, alignment: .top)
+                // Wider than the other pages, so the outline adds room instead of taking it from the chat.
+                .frame(maxWidth: 1360, maxHeight: .infinity, alignment: .top)
                 .frame(maxWidth: .infinity)
         case .logs:
             // The log has its own scroll view, so it fills the window instead of scrolling with the page.
