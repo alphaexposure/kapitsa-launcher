@@ -65,20 +65,31 @@ struct ChatPage: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .frame(width: 320)
-            Spacer()
+            Spacer(minLength: 10)
+            // Labelled buttons when there's room, icons alone in a narrow window.
+            ViewThatFits(in: .horizontal) {
+                actions.labelStyle(.titleAndIcon)
+                actions.labelStyle(.iconOnly)
+            }
+        }
+    }
+
+    private var actions: some View {
+        HStack(spacing: 10) {
             Toggle(isOn: $autoScroll) { Label("Auto-scroll", systemImage: "arrow.down.to.line") }
                 .toggleStyle(.button)
-                .help("Follow the reply as it's written. Turn off to read earlier turns while the model works.")
+                .help("Auto-scroll: follow the reply as it's written. Turn off to read earlier turns while the model works.")
             Toggle(isOn: $outlineShown) { Label("Outline", systemImage: "sidebar.right") }
                 .toggleStyle(.button)
-                .help("Show or hide the list of questions")
+                .help("Outline: show or hide the list of questions")
             Button { export(chat.messages) } label: { Label("Export", systemImage: "square.and.arrow.up") }
                 .disabled(chat.messages.isEmpty || chat.isStreaming)
-                .help("Save the whole chat as a Markdown file")
+                .help("Export: save the whole chat as a Markdown file")
             Button { chat.clear() } label: { Label("New chat", systemImage: "square.and.pencil") }
                 .disabled(chat.messages.isEmpty)
-                .help("Clear the conversation")
+                .help("New chat: clear the conversation")
         }
+        .fixedSize()
     }
 
     private var conversation: some View {
