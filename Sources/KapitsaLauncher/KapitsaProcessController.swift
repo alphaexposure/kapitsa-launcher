@@ -125,6 +125,13 @@ final class KapitsaProcessController: ObservableObject {
         return components.url
     }
 
+    /// Where the Chat page sends requests, while the server this app started is ready.
+    var chatConnection: KapitsaChatConnection? {
+        guard let webUIURL else { return nil }
+        return KapitsaChatConnection(baseURL: webUIURL, apiKey: activeAPIKey,
+                                     model: engine.model ?? (activeConfiguration?.model.isEmpty == false ? activeConfiguration!.model : "kapitsa"))
+    }
+
     func selectExecutable(path: String) {
         guard !state.isRunning else { return }
         guard FileManager.default.isExecutableFile(atPath: path) else {

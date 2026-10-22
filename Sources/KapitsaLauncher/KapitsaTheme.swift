@@ -24,6 +24,7 @@ enum KapitsaTheme {
 
 enum LauncherPage: String, CaseIterable {
     case overview = "Overview"
+    case chat = "Chat"
     case settings = "Settings"
     case logs = "Logs"
     case app = "App"
@@ -31,6 +32,7 @@ enum LauncherPage: String, CaseIterable {
     var symbol: String {
         switch self {
         case .overview: return "square.grid.2x2"
+        case .chat: return "bubble.left.and.bubble.right"
         case .settings: return "slider.horizontal.3"
         case .logs: return "terminal"
         case .app: return "gearshape"
@@ -40,6 +42,7 @@ enum LauncherPage: String, CaseIterable {
     var subtitle: String {
         switch self {
         case .overview: return "Your model, running on your Mac."
+        case .chat: return "Talk to your model, with as much thinking as you like."
         case .settings: return "Make Kapitsa work the way you want."
         case .logs: return "A closer look at what your server is doing."
         case .app: return "A few things to make yourself at home."

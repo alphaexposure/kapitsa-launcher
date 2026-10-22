@@ -4,6 +4,7 @@ import SwiftUI
 /// The main window: sidebar, page header with the server controls, and the selected page.
 struct ContentView: View {
     @ObservedObject var controller: KapitsaProcessController
+    @ObservedObject var chat: KapitsaChatController
     @State private var page: LauncherPage = .overview
 
     var body: some View {
@@ -31,6 +32,13 @@ struct ContentView: View {
         case .overview: scrolling { OverviewPage(controller: controller) }
         case .settings: scrolling { SettingsPage(controller: controller) }
         case .app: scrolling { AppPage() }
+        case .chat:
+            // The conversation has its own scroll view, with the message box pinned below it.
+            ChatPage(controller: controller, chat: chat)
+                .padding(.horizontal, 30)
+                .padding(.bottom, 24)
+                .frame(maxWidth: 1000, maxHeight: .infinity, alignment: .top)
+                .frame(maxWidth: .infinity)
         case .logs:
             // The log has its own scroll view, so it fills the window instead of scrolling with the page.
             LogsPage(controller: controller)
