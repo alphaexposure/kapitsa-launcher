@@ -8,6 +8,7 @@ struct ChatPage: View {
     @ObservedObject var controller: KapitsaProcessController
     @ObservedObject var chat: KapitsaChatController
     @State private var isDropTargeted = false
+    @State private var exportError: String?
     @FocusState private var composerFocused: Bool
     private let endID = "chat-end"
 
@@ -18,6 +19,7 @@ struct ChatPage: View {
                 Notice(controller.state.isRunning ? "Kapitsa is starting. You can chat once it's ready."
                        : "Start Kapitsa to chat with your model.", symbol: "info.circle")
             }
+            if let exportError { Notice(exportError, symbol: "exclamationmark.triangle", isError: true) }
             conversation
             composer
         }
@@ -35,6 +37,9 @@ struct ChatPage: View {
             .labelsHidden()
             .frame(width: 320)
             Spacer()
+            Button { export(chat.messages) } label: { Label("Export", systemImage: "square.and.arrow.up") }
+                .disabled(chat.messages.isEmpty || chat.isStreaming)
+                .help("Save the whole chat as a Markdown file")
             Button { chat.clear() } label: { Label("New chat", systemImage: "square.and.pencil") }
                 .disabled(chat.messages.isEmpty)
                 .help("Clear the conversation")
@@ -54,8 +59,10 @@ struct ChatPage: View {
                         .frame(maxWidth: .infinity).padding(.top, 80)
                     }
                     ForEach(chat.messages) { message in
-                        ChatMessageView(message: message, isLive: chat.streamingID == message.id)
-                            .id(message.id)
+                        ChatMessageView(message: message, isLive: chat.streamingID == message.id) {
+                            export(KapitsaChatExport.turn(endingWith: message.id, in: chat.messages))
+                        }
+                        .id(message.id)
                     }
                     Color.clear.frame(height: 1).id(endID)
                 }
@@ -122,6 +129,26 @@ struct ChatPage: View {
         .onAppear { composerFocused = true }
     }
 
+    /// Asks where to save, then writes the Markdown and, beside it, a folder for any images.
+    private func export(_ messages: [KapitsaChatMessage]) {
+        guard !messages.isEmpty else { return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = KapitsaChatExport(messages: messages).suggestedFileName
+        panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        // Name the images folder after the file actually chosen.
+        let export = KapitsaChatExport(
+            messages: messages,
+            imagesFolderName: KapitsaChatExport.imagesFolderName(forMarkdownNamed: url.lastPathComponent))
+        do {
+            try export.write(to: url)
+            exportError = nil
+        } catch {
+            exportError = "Couldn't save the export: \(error.localizedDescription)"
+        }
+    }
+
     private func send() {
         guard let connection = controller.chatConnection else { return }
         chat.send(to: connection)
@@ -169,6 +196,7 @@ struct ChatPage: View {
 private struct ChatMessageView: View {
     let message: KapitsaChatMessage
     let isLive: Bool
+    let onExport: () -> Void
 
     var body: some View {
         if message.role == .user {
@@ -225,6 +253,10 @@ private struct ChatMessageView: View {
                 .buttonStyle(.plain)
                 .disabled(message.text.isEmpty)
                 .accessibilityLabel("Copy reply")
+                Button(action: onExport) { Image(systemName: "square.and.arrow.up") }
+                    .buttonStyle(.plain)
+                    .help("Save this question and reply as a Markdown file")
+                    .accessibilityLabel("Export this turn as Markdown")
             }
             .font(.caption).foregroundStyle(.secondary).monospacedDigit()
         }

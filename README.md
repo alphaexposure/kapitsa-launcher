@@ -43,6 +43,10 @@ A native macOS app for starting, stopping and monitoring a local
   - **Attachments:** drop or attach images, which Kapitsa reads itself, and documents (PDF,
     Word, RTF, HTML, OpenDocument, text, Markdown, code), whose text the launcher extracts and
     adds to the message. Scanned PDFs without a text layer can't be read.
+  - **Export as Markdown:** the whole chat (Export) or one question and reply (the button
+    under each reply). Replies keep their full Markdown, tables and code blocks included;
+    reasoning goes in a foldable `<details>` block; images are saved in a folder beside the
+    file; documents are listed by name.
   - The conversation is kept between launches, in
     `~/Library/Application Support/KapitsaLauncher/chat.json`.
 - **Settings:** model (best for this Mac, downloaded, catalog or custom), host, port, API

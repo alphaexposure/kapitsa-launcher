@@ -85,7 +85,8 @@ final class KapitsaChatControllerTests: XCTestCase {
 
     func testStreamsReasoningThenAnswerAndSavesTheConversation() async throws {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString)/chat.json")
-        var times = [0.0, 1.0, 3.0, 5.0].makeIterator()
+        // Readings: question and reply sent, first reasoning, first answer token, finished.
+        var times = [0.0, 0.0, 0.0, 1.0, 3.0].makeIterator()
         let chat = KapitsaChatController(
             store: KapitsaChatStore(url: file), defaults: makeDefaults(),
             streamLines: lines([

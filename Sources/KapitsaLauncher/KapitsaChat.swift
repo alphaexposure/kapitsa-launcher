@@ -63,6 +63,9 @@ struct KapitsaChatMessage: Codable, Equatable, Identifiable {
     var reasoning = ""
     var attachments: [KapitsaChatAttachment] = []
     var thinking: KapitsaThinkingLevel?
+    /// The model that wrote a reply, as Kapitsa named it.
+    var model: String?
+    var sentAt: Date?
     var stats: Stats?
     var errorMessage: String?
     var wasStopped = false
@@ -248,13 +251,13 @@ final class KapitsaChatController: ObservableObject {
     func send(to connection: KapitsaChatConnection) {
         guard canSend else { return }
         let user = KapitsaChatMessage(role: .user, text: draft.trimmingCharacters(in: .whitespacesAndNewlines),
-                                      attachments: pendingAttachments)
+                                      attachments: pendingAttachments, sentAt: now())
         draft = ""
         pendingAttachments = []
         attachmentError = nil
         messages.append(user)
         let history = messages
-        let reply = KapitsaChatMessage(role: .assistant, text: "", thinking: thinking)
+        let reply = KapitsaChatMessage(role: .assistant, text: "", thinking: thinking, model: connection.model, sentAt: now())
         messages.append(reply)
         streamingID = reply.id
 
