@@ -140,6 +140,17 @@ final class KapitsaChatControllerTests: XCTestCase {
         XCTAssertEqual(chat.messages.last?.wasStopped, true)
     }
 
+    func testQuickTokensReachTheScreenInOneUpdate() async {
+        let tokens = (0..<500).map { _ in #"data: {"choices":[{"delta":{"content":"t"}}]}"# } + ["data: [DONE]"]
+        var updates: [KapitsaChatController.Batch] = []
+        let outcome = await KapitsaChatController.consume(
+            request: URLRequest(url: URL(string: "http://127.0.0.1:8000/")!), streamLines: lines(tokens), now: Date.init
+        ) { updates.append($0) }
+        XCTAssertEqual(updates.count, 1, "500 tokens arriving within 100 ms are drawn once")
+        XCTAssertEqual(updates.first?.content.count, 500)
+        XCTAssertFalse(outcome.wasStopped)
+    }
+
     func testThinkingLevelIsRememberedAndSendNeedsContent() {
         let defaults = makeDefaults()
         let chat = KapitsaChatController(store: nil, defaults: defaults, streamLines: lines([]))

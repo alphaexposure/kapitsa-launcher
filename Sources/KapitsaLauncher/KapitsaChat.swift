@@ -202,20 +202,40 @@ struct KapitsaChatStore {
 }
 
 /// The conversation on the Chat page, streamed from the server this launcher started.
+///
+/// The stream is read and timed off the main thread, and the screen gets the new text in
+/// batches about ten times a second. Drawing every token on a fast model left the window
+/// far behind the server, and the speeds it showed measured the window, not the model.
 @MainActor
 final class KapitsaChatController: ObservableObject {
     typealias LineStreamer = (URLRequest) async throws -> AsyncThrowingStream<String, Error>
 
+    /// Text that arrived since the screen was last updated.
+    struct Batch: Equatable {
+        var reasoning = ""
+        var content = ""
+        var isEmpty: Bool { reasoning.isEmpty && content.isEmpty }
+    }
+
+    /// How a reply's stream ended.
+    struct Outcome: Equatable {
+        var stats = KapitsaChatMessage.Stats()
+        var errorMessage: String?
+        var wasStopped = false
+    }
+
+    /// Finished messages. They don't change while a reply streams, so the page doesn't redraw them.
     @Published private(set) var messages: [KapitsaChatMessage]
+    /// The reply being written, kept apart from `messages` until it finishes.
+    @Published private(set) var liveReply: KapitsaChatMessage?
     @Published var draft = ""
     @Published var pendingAttachments: [KapitsaChatAttachment] = []
     @Published var attachmentError: String?
     @Published var thinking: KapitsaThinkingLevel {
         didSet { defaults.set(thinking.rawValue, forKey: Self.thinkingKey) }
     }
-    /// The assistant message being written, if any.
-    @Published private(set) var streamingID: UUID?
 
+    nonisolated static let screenUpdateInterval: Duration = .milliseconds(100)
     private static let thinkingKey = "KapitsaLauncher.chatThinking"
     private let defaults: UserDefaults
     private let store: KapitsaChatStore?
@@ -234,7 +254,9 @@ final class KapitsaChatController: ObservableObject {
         self.thinking = defaults.string(forKey: Self.thinkingKey).flatMap(KapitsaThinkingLevel.init) ?? .xhigh
     }
 
-    var isStreaming: Bool { streamingID != nil }
+    /// The reply being written, if any.
+    var streamingID: UUID? { liveReply?.id }
+    var isStreaming: Bool { liveReply != nil }
 
     var canSend: Bool {
         !isStreaming && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingAttachments.isEmpty)
@@ -256,14 +278,24 @@ final class KapitsaChatController: ObservableObject {
         pendingAttachments = []
         attachmentError = nil
         messages.append(user)
-        let history = messages
         let reply = KapitsaChatMessage(role: .assistant, text: "", thinking: thinking, model: connection.model, sentAt: now())
-        messages.append(reply)
-        streamingID = reply.id
+        liveReply = reply
 
-        let body = KapitsaChatRequest.body(history: history, thinking: thinking, model: connection.model)
-        task = Task { [weak self] in
-            await self?.stream(body: body, connection: connection, replyID: reply.id)
+        let request: URLRequest
+        do {
+            request = try KapitsaChatRequest.urlRequest(
+                connection: connection,
+                body: KapitsaChatRequest.body(history: messages, thinking: thinking, model: connection.model))
+        } catch {
+            finish(replyID: reply.id, outcome: Outcome(errorMessage: error.localizedDescription))
+            return
+        }
+        let streamLines = self.streamLines, now = self.now
+        task = Task.detached(priority: .userInitiated) { [weak self] in
+            let outcome = await Self.consume(request: request, streamLines: streamLines, now: now) { batch in
+                self?.apply(batch, replyID: reply.id)
+            }
+            await self?.finish(replyID: reply.id, outcome: outcome)
         }
     }
 
@@ -273,58 +305,80 @@ final class KapitsaChatController: ObservableObject {
 
     func clear() {
         stop()
+        task = nil
+        liveReply = nil
         messages = []
-        streamingID = nil
         store?.save(messages)
     }
 
-    private func stream(body: [String: Any], connection: KapitsaChatConnection, replyID: UUID) async {
+    private func apply(_ batch: Batch, replyID: UUID) {
+        guard liveReply?.id == replyID else { return }
+        liveReply?.reasoning += batch.reasoning
+        liveReply?.text += batch.content
+    }
+
+    private func finish(replyID: UUID, outcome: Outcome) {
+        guard var reply = liveReply, reply.id == replyID else { return }
+        reply.stats = outcome.stats
+        reply.errorMessage = outcome.errorMessage
+        reply.wasStopped = outcome.wasStopped
+        messages.append(reply)
+        liveReply = nil
+        task = nil
+        store?.save(messages)
+    }
+
+    /// Reads the stream off the main thread, timing tokens as they arrive, and hands the text
+    /// to `apply` at most every `screenUpdateInterval`, plus once at the end.
+    nonisolated static func consume(request: URLRequest, streamLines: LineStreamer, now: () -> Date,
+                                    apply: @escaping @MainActor (Batch) -> Void) async -> Outcome {
+        var outcome = Outcome()
+        var pending = Batch()
         var firstReasoning: Date?
         var firstContent: Date?
-        var stats = KapitsaChatMessage.Stats()
-        func update(_ change: (inout KapitsaChatMessage) -> Void) {
-            guard let index = messages.firstIndex(where: { $0.id == replyID }) else { return }
-            change(&messages[index])
-        }
+        var lastUpdate = ContinuousClock.now
 
         do {
-            let request = try KapitsaChatRequest.urlRequest(connection: connection, body: body)
             lines: for try await line in try await streamLines(request) {
-                try Task.checkCancellation()
+                if Task.isCancelled { break }
                 for event in KapitsaChatEvent.parse(line: line) ?? [] {
                     switch event {
                     case .reasoning(let text):
                         if firstReasoning == nil { firstReasoning = now() }
-                        update { $0.reasoning += text }
+                        pending.reasoning += text
                     case .content(let text):
                         if firstContent == nil { firstContent = now() }
-                        update { $0.text += text }
+                        pending.content += text
                     case .usage(let prompt, let output):
-                        stats.promptTokens = prompt
-                        stats.outputTokens = output
+                        outcome.stats.promptTokens = prompt
+                        outcome.stats.outputTokens = output
                     case .failure(let message):
-                        update { $0.errorMessage = message }
+                        outcome.errorMessage = message
                         break lines
                     case .done:
                         break lines
                     }
                 }
+                if !pending.isEmpty && ContinuousClock.now - lastUpdate >= screenUpdateInterval {
+                    let batch = pending
+                    pending = Batch()
+                    lastUpdate = .now
+                    await apply(batch)
+                }
             }
         } catch is CancellationError {
         } catch let error as URLError where error.code == .cancelled {
         } catch {
-            update { $0.errorMessage = error.localizedDescription }
+            outcome.errorMessage = error.localizedDescription
         }
+        if !pending.isEmpty { await apply(pending) }
         // A cancelled stream may end quietly instead of throwing.
-        if Task.isCancelled { update { $0.wasStopped = true } }
+        outcome.wasStopped = Task.isCancelled
 
         let finished = now()
-        if let firstReasoning { stats.thinkingSeconds = (firstContent ?? finished).timeIntervalSince(firstReasoning) }
-        if let first = firstReasoning ?? firstContent { stats.generationSeconds = finished.timeIntervalSince(first) }
-        update { $0.stats = stats }
-        streamingID = nil
-        task = nil
-        store?.save(messages)
+        if let firstReasoning { outcome.stats.thinkingSeconds = (firstContent ?? finished).timeIntervalSince(firstReasoning) }
+        if let first = firstReasoning ?? firstContent { outcome.stats.generationSeconds = finished.timeIntervalSince(first) }
+        return outcome
     }
 
     /// Streams the response's lines, failing with the server's message on an HTTP error.

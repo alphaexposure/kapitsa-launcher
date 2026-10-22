@@ -50,7 +50,7 @@ struct ChatPage: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
-                    if chat.messages.isEmpty {
+                    if chat.messages.isEmpty && chat.liveReply == nil {
                         VStack(spacing: 10) {
                             KapitsaMarkShape().fill(KapitsaTheme.accent.opacity(0.5)).frame(width: 34, height: 34)
                             Text("Ask anything. Drop images or documents here to include them.")
@@ -58,11 +58,15 @@ struct ChatPage: View {
                         }
                         .frame(maxWidth: .infinity).padding(.top, 80)
                     }
-                    ForEach(chat.messages) { message in
-                        ChatMessageView(message: message, isLive: chat.streamingID == message.id) {
-                            export(KapitsaChatExport.turn(endingWith: message.id, in: chat.messages))
-                        }
-                        .id(message.id)
+                    // Finished messages don't change while a reply streams; comparing them is
+                    // cheap, so SwiftUI skips redrawing them on each update.
+                    ChatHistory(messages: chat.messages) { id in
+                        export(KapitsaChatExport.turn(endingWith: id, in: chat.messages))
+                    }
+                    .equatable()
+                    if let live = chat.liveReply {
+                        ChatMessageView(message: live, isLive: true, onExport: {})
+                            .id(live.id)
                     }
                     Color.clear.frame(height: 1).id(endID)
                 }
@@ -72,7 +76,11 @@ struct ChatPage: View {
             .overlay(RoundedRectangle(cornerRadius: 14)
                 .stroke(isDropTargeted ? KapitsaTheme.accent : KapitsaTheme.border, lineWidth: isDropTargeted ? 2 : 1))
             .onAppear { proxy.scrollTo(endID, anchor: .bottom) }
-            .onChange(of: chat.messages) { proxy.scrollTo(endID, anchor: .bottom) }
+            // Cheap to compare: a count and two byte lengths, not the whole conversation.
+            .onChange(of: chat.messages.count) { proxy.scrollTo(endID, anchor: .bottom) }
+            .onChange(of: (chat.liveReply?.text.utf8.count ?? 0) + (chat.liveReply?.reasoning.utf8.count ?? 0)) {
+                proxy.scrollTo(endID, anchor: .bottom)
+            }
         }
     }
 
@@ -189,6 +197,22 @@ struct ChatPage: View {
             }
         }
         return true
+    }
+}
+
+/// The finished messages. Equal when the array is unchanged, which Swift checks without
+/// looking inside it, so a streaming reply doesn't make SwiftUI revisit the whole conversation.
+private struct ChatHistory: View, Equatable {
+    let messages: [KapitsaChatMessage]
+    let onExport: (UUID) -> Void
+
+    static func == (lhs: ChatHistory, rhs: ChatHistory) -> Bool { lhs.messages == rhs.messages }
+
+    var body: some View {
+        ForEach(messages) { message in
+            ChatMessageView(message: message, isLive: false) { onExport(message.id) }
+                .id(message.id)
+        }
     }
 }
 

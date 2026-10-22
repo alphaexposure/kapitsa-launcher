@@ -4,7 +4,8 @@ import SwiftUI
 /// The main window: sidebar, page header with the server controls, and the selected page.
 struct ContentView: View {
     @ObservedObject var controller: KapitsaProcessController
-    @ObservedObject var chat: KapitsaChatController
+    // Not observed here: only the Chat page redraws when the conversation changes.
+    let chat: KapitsaChatController
     @State private var page: LauncherPage = .overview
 
     var body: some View {
