@@ -9,6 +9,7 @@ struct ChatPage: View {
     @ObservedObject var chat: KapitsaChatController
     @State private var isDropTargeted = false
     @State private var exportError: String?
+    @State private var turnToDelete: UUID?
     @AppStorage("chatOutlineShown") private var outlineShown = true
     @AppStorage("chatAutoScroll") private var autoScroll = true
     @FocusState private var composerFocused: Bool
@@ -26,6 +27,15 @@ struct ChatPage: View {
             composer
         }
         .onDrop(of: [.fileURL, .image], isTargeted: $isDropTargeted, perform: handleDrop)
+        .confirmationDialog("Delete this question and its reply?",
+                            isPresented: Binding(get: { turnToDelete != nil }, set: { if !$0 { turnToDelete = nil } })) {
+            Button("Delete", role: .destructive) {
+                if let id = turnToDelete { chat.deleteTurn(endingWith: id) }
+                turnToDelete = nil
+            }
+        } message: {
+            Text("It's removed from the chat and from what the model sees in later replies. This can't be undone.")
+        }
     }
 
     private var toolbar: some View {
@@ -69,12 +79,12 @@ struct ChatPage: View {
                         }
                         // Finished messages don't change while a reply streams; comparing them is
                         // cheap, so SwiftUI skips redrawing them on each update.
-                        ChatHistory(messages: chat.messages) { id in
-                            export(KapitsaChatExport.turn(endingWith: id, in: chat.messages))
-                        }
+                        ChatHistory(messages: chat.messages,
+                                    onExport: { id in export(KapitsaChatExport.turn(endingWith: id, in: chat.messages)) },
+                                    onDelete: { turnToDelete = $0 })
                         .equatable()
                         if let live = chat.liveReply {
-                            ChatMessageView(message: live, isLive: true, onExport: {})
+                            ChatMessageView(message: live, isLive: true, onExport: {}, onDelete: {})
                                 .id(live.id)
                         }
                         Color.clear.frame(height: 1).id(endID)
@@ -249,12 +259,14 @@ struct ChatPage: View {
 private struct ChatHistory: View, Equatable {
     let messages: [KapitsaChatMessage]
     let onExport: (UUID) -> Void
+    let onDelete: (UUID) -> Void
 
     static func == (lhs: ChatHistory, rhs: ChatHistory) -> Bool { lhs.messages == rhs.messages }
 
     var body: some View {
         ForEach(messages) { message in
-            ChatMessageView(message: message, isLive: false) { onExport(message.id) }
+            ChatMessageView(message: message, isLive: false,
+                            onExport: { onExport(message.id) }, onDelete: { onDelete(message.id) })
                 .id(message.id)
         }
     }
@@ -374,6 +386,7 @@ private struct ChatMessageView: View {
     let message: KapitsaChatMessage
     let isLive: Bool
     let onExport: () -> Void
+    let onDelete: () -> Void
 
     var body: some View {
         if message.role == .user {
@@ -415,7 +428,10 @@ private struct ChatMessageView: View {
     @ViewBuilder
     private var footer: some View {
         if let error = message.errorMessage {
-            Notice(error, symbol: "exclamationmark.triangle", isError: true)
+            HStack(alignment: .top, spacing: 10) {
+                Notice(error, symbol: "exclamationmark.triangle", isError: true)
+                if !isLive { deleteButton.font(.caption).foregroundStyle(.secondary).padding(.top, 8) }
+            }
         } else if !isLive {
             HStack(spacing: 10) {
                 if message.wasStopped { Text("Stopped") }
@@ -434,9 +450,17 @@ private struct ChatMessageView: View {
                     .buttonStyle(.plain)
                     .help("Save this question and reply as a Markdown file")
                     .accessibilityLabel("Export this turn as Markdown")
+                deleteButton
             }
             .font(.caption).foregroundStyle(.secondary).monospacedDigit()
         }
+    }
+
+    private var deleteButton: some View {
+        Button(action: onDelete) { Image(systemName: "trash") }
+            .buttonStyle(.plain)
+            .help("Delete this question and reply")
+            .accessibilityLabel("Delete this turn")
     }
 
     /// Inline Markdown (bold, italics, code, links), keeping the model's line breaks.

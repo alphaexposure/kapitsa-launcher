@@ -48,6 +48,8 @@ A native macOS app for starting, stopping and monitoring a local
     reasoning goes in a foldable `<details>` block, or is left out with **Exclude thinking** in
     the Save dialog; images are saved in a folder beside the
     file; documents are listed by name.
+  - **Delete a turn:** the trash button under a reply removes it and its question, after asking,
+    including from what the model sees in later replies.
   - **Auto-scroll:** follows the reply as it streams; turn it off to read earlier turns while
     the model works. Sending a message still shows it.
   - **Outline:** a panel beside the chat lists each question, numbered, with the headings of

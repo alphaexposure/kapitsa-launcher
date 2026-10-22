@@ -303,6 +303,15 @@ final class KapitsaChatController: ObservableObject {
         task?.cancel()
     }
 
+    /// Removes a reply and the question before it, from the screen, the saved file and the
+    /// history later messages send to the model.
+    func deleteTurn(endingWith replyID: UUID) {
+        let turn = Set(KapitsaChatExport.turn(endingWith: replyID, in: messages).map(\.id))
+        guard !turn.isEmpty else { return }
+        messages.removeAll { turn.contains($0.id) }
+        store?.save(messages)
+    }
+
     func clear() {
         stop()
         task = nil

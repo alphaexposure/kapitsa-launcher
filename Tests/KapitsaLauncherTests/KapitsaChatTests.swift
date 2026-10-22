@@ -83,6 +83,22 @@ final class KapitsaChatControllerTests: XCTestCase {
         for _ in 0..<200 where chat.isStreaming { try? await Task.sleep(for: .milliseconds(5)) }
     }
 
+    func testDeletingATurnRemovesTheQuestionAndReplyAndSaves() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString)/chat.json")
+        let store = KapitsaChatStore(url: file)
+        let conversation = [
+            KapitsaChatMessage(role: .user, text: "One"), KapitsaChatMessage(role: .assistant, text: "1"),
+            KapitsaChatMessage(role: .user, text: "Two"), KapitsaChatMessage(role: .assistant, text: "2"),
+        ]
+        store.save(conversation)
+        let chat = KapitsaChatController(store: store, defaults: makeDefaults(), streamLines: lines([]))
+        chat.deleteTurn(endingWith: conversation[1].id)
+        XCTAssertEqual(chat.messages.map(\.text), ["Two", "2"])
+        XCTAssertEqual(store.load(), chat.messages)
+        chat.deleteTurn(endingWith: UUID())
+        XCTAssertEqual(chat.messages.count, 2)
+    }
+
     func testStreamsReasoningThenAnswerAndSavesTheConversation() async throws {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString)/chat.json")
         // Readings: question and reply sent, first reasoning, first answer token, finished.
