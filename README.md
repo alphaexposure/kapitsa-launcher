@@ -45,16 +45,24 @@ A native macOS app for starting, stopping and monitoring a local
     adds to the message. Scanned PDFs without a text layer can't be read.
   - **Export as Markdown:** the whole chat (Export) or one question and reply (the button
     under each reply). Replies keep their full Markdown, tables and code blocks included;
-    reasoning goes in a foldable `<details>` block, or is left out with **Exclude thinking** in
-    the Save dialog; images are saved in a folder beside the
-    file; documents are listed by name.
+    reasoning goes in a foldable `<details>` block; images are saved in a folder beside the
+    file; documents are listed by name. The Save dialog offers:
+    - **Include summary:** the running model writes a short summary (an overview, main points,
+      open questions) with thinking off, from the questions and replies only. A chat too long
+      for the model's context is summarised in parts, then combined. The summary is labelled
+      with the model that wrote it. Needs Kapitsa running.
+    - **Include full conversation**, on by default.
+    - **Save the summary as a separate file:** `<name>.md` and `<name> – Summary.md` side by
+      side, the summary linking to the full file.
+    - **Exclude thinking**, for a shorter full conversation.
   - **Delete a turn:** the trash button under a reply removes it and its question, after asking,
     including from what the model sees in later replies.
   - **Auto-scroll:** follows the reply as it streams; turn it off to read earlier turns while
     the model works. Sending a message still shows it.
   - **Outline:** a panel beside the chat lists each question, numbered, with the headings of
     its reply; click one to jump to it. Fold a question's headings with its chevron, or all of
-    them at once, and hide the panel with the Outline button.
+    them at once, and hide the panel with the Outline button. Its header shows about how many tokens the
+    model reads with your next message, against its context.
   - The conversation is kept between launches, in
     `~/Library/Application Support/KapitsaLauncher/chat.json`.
 - **Settings:** model (best for this Mac, downloaded, catalog or custom), host, port, API

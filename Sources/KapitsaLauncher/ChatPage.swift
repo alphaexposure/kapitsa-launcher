@@ -10,6 +10,8 @@ struct ChatPage: View {
     @State private var isDropTargeted = false
     @State private var exportError: String?
     @State private var turnToDelete: UUID?
+    /// The summary being written for an export, shown in a sheet that can cancel it.
+    @State private var summaryTask: Task<Void, Never>?
     @AppStorage("chatOutlineShown") private var outlineShown = true
     @AppStorage("chatAutoScroll") private var autoScroll = true
     @FocusState private var composerFocused: Bool
@@ -35,6 +37,21 @@ struct ChatPage: View {
             }
         } message: {
             Text("It's removed from the chat and from what the model sees in later replies. This can't be undone.")
+        }
+        .sheet(isPresented: Binding(get: { summaryTask != nil }, set: { _ in })) {
+            VStack(spacing: 14) {
+                ProgressView()
+                Text("Kapitsa is writing the summary…").font(.headline)
+                Text("Thinking is off, so this usually takes a few seconds; a long chat is summarised in parts.")
+                    .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Button("Cancel") {
+                    summaryTask?.cancel()
+                    summaryTask = nil
+                }
+                .keyboardShortcut(.cancelAction)
+            }
+            .padding(24)
+            .frame(width: 340)
         }
     }
 
@@ -105,7 +122,7 @@ struct ChatPage: View {
                 }
                 .onChange(of: autoScroll) { if autoScroll { proxy.scrollTo(endID, anchor: .bottom) } }
                 if outlineShown && !chat.messages.isEmpty {
-                    ChatOutlineView(messages: chat.messages) { id in
+                    ChatOutlineView(messages: chat.messages, contextTokens: controller.engine.contextTokens) { id in
                         // The lazy list guesses the height of rows it hasn't drawn, so the first
                         // jump can land short; once those rows are drawn, a second one is exact.
                         proxy.scrollTo(id, anchor: .top)
@@ -171,44 +188,44 @@ struct ChatPage: View {
         .onAppear { composerFocused = true }
     }
 
-    /// Asks where to save, then writes the Markdown and, beside it, a folder for any images.
+    /// Asks where to save and what to include, then writes the Markdown and, beside it, a
+    /// folder for any images. A summary is written by the model first, behind a progress sheet.
     private func export(_ messages: [KapitsaChatMessage]) {
         guard !messages.isEmpty else { return }
         let panel = NSSavePanel()
         panel.nameFieldStringValue = KapitsaChatExport(messages: messages).suggestedFileName
         panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
         panel.canCreateDirectories = true
-        let excludeThinking = NSButton(checkboxWithTitle: "Exclude thinking", target: nil, action: nil)
-        excludeThinking.state = UserDefaults.standard.bool(forKey: Self.excludeThinkingKey) ? .on : .off
-        excludeThinking.toolTip = "Leave out the model's reasoning for a shorter file"
-        panel.accessoryView = Self.accessory(excludeThinking)
+        let accessory = ExportOptionsAccessory(canSummarize: controller.chatConnection != nil)
+        panel.accessoryView = accessory.view
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        UserDefaults.standard.set(excludeThinking.state == .on, forKey: Self.excludeThinkingKey)
-        // Name the images folder after the file actually chosen.
-        let export = KapitsaChatExport(
-            messages: messages,
-            includeThinking: excludeThinking.state == .off,
-            imagesFolderName: KapitsaChatExport.imagesFolderName(forMarkdownNamed: url.lastPathComponent))
-        do {
-            try export.write(to: url)
-            exportError = nil
-        } catch {
-            exportError = "Couldn't save the export: \(error.localizedDescription)"
+        accessory.remember()
+        let options = accessory.options
+        exportError = nil
+        guard options.includeSummary, let connection = controller.chatConnection else {
+            write(messages, to: url, options: options, summary: nil)
+            return
+        }
+        let contextTokens = controller.engine.contextTokens
+        summaryTask = Task {
+            do {
+                let summary = try await KapitsaChatSummary.write(for: messages, connection: connection,
+                                                                 contextTokens: contextTokens)
+                if !Task.isCancelled { write(messages, to: url, options: options, summary: summary) }
+            } catch {
+                if !Task.isCancelled { exportError = error.localizedDescription }
+            }
+            summaryTask = nil
         }
     }
 
-    private static let excludeThinkingKey = "exportExcludesThinking"
-
-    /// The Save dialog's extra options, with some room around them.
-    private static func accessory(_ control: NSView) -> NSView {
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 40))
-        control.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(control)
-        NSLayoutConstraint.activate([
-            control.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            control.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-        ])
-        return container
+    private func write(_ messages: [KapitsaChatMessage], to url: URL, options: KapitsaChatExport.Options,
+                       summary: KapitsaChatSummary?) {
+        do {
+            try KapitsaChatExport.write(messages, to: url, options: options, summary: summary)
+        } catch {
+            exportError = "Couldn't save the export: \(error.localizedDescription)"
+        }
     }
 
     private func send() {
@@ -277,12 +294,16 @@ private struct ChatHistory: View, Equatable {
 /// Equatable for the same reason as `ChatHistory`.
 private struct ChatOutlineView: View, Equatable {
     let messages: [KapitsaChatMessage]
+    /// The model's context per conversation, from Kapitsa's startup lines; nil when not running.
+    let contextTokens: Int?
     let onSelect: (UUID) -> Void
     /// Questions whose headings are folded away. Kept here, not in the rows, so the lazy list
     /// doesn't forget them when a row scrolls out of view.
     @State private var collapsed: Set<UUID> = []
 
-    static func == (lhs: ChatOutlineView, rhs: ChatOutlineView) -> Bool { lhs.messages == rhs.messages }
+    static func == (lhs: ChatOutlineView, rhs: ChatOutlineView) -> Bool {
+        lhs.messages == rhs.messages && lhs.contextTokens == rhs.contextTokens
+    }
 
     var body: some View {
         let entries = KapitsaChatOutline.entries(from: messages)
@@ -301,6 +322,10 @@ private struct ChatOutlineView: View, Equatable {
                 }
             }
             .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 6)
+            if let tokens = KapitsaChatOutline.conversationTokens(in: messages) {
+                ConversationSize(tokens: tokens, contextTokens: contextTokens)
+                    .padding(.horizontal, 12).padding(.bottom, 8)
+            }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
                     ForEach(entries) { entry in
@@ -317,6 +342,37 @@ private struct ChatOutlineView: View, Equatable {
 
     private func toggle(_ id: UUID) {
         if collapsed.contains(id) { collapsed.remove(id) } else { collapsed.insert(id) }
+    }
+}
+
+/// About how much the model reads for the next message, against its context when known.
+private struct ConversationSize: View {
+    let tokens: Int
+    let contextTokens: Int?
+
+    private var fraction: Double? { contextTokens.map { min(1, Double(tokens) / Double(max($0, 1))) } }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            if let fraction {
+                ProgressView(value: fraction)
+                    .progressViewStyle(.linear)
+                    .tint(fraction > 0.8 ? .orange : KapitsaTheme.accent)
+                    .controlSize(.small)
+            }
+        }
+        .help("About how many tokens the model reads with your next message: the questions and replies so far, without the reasoning. Estimated from the latest reply's usage. When it nears the context, Kapitsa can't fit the whole chat; start a new chat or export a summary.")
+    }
+
+    private var label: String {
+        let size = "≈ " + Self.compact(tokens) + " tokens"
+        guard let contextTokens else { return size }
+        return size + " of " + Self.compact(contextTokens)
+    }
+
+    static func compact(_ value: Int) -> String {
+        value.formatted(.number.notation(.compactName).precision(.significantDigits(1...3)))
     }
 }
 

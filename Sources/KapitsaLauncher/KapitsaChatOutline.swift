@@ -34,6 +34,15 @@ enum KapitsaChatOutline {
         return entries
     }
 
+    /// About how many tokens the model reads for the next message: what it read for the latest
+    /// reply, plus that reply and anything after it, estimated from their length. Reasoning
+    /// isn't sent back, so it doesn't count. Nil until a reply has reported its usage.
+    static func conversationTokens(in messages: [KapitsaChatMessage]) -> Int? {
+        guard let index = messages.lastIndex(where: { $0.role == .assistant && $0.stats?.promptTokens != nil }),
+              let prompt = messages[index].stats?.promptTokens else { return nil }
+        return messages[index...].reduce(prompt) { $0 + KapitsaChatSummary.estimatedTokens($1.text) }
+    }
+
     /// The first line of the question, shortened; attachment names when there is no text.
     static func question(for message: KapitsaChatMessage) -> String {
         let firstLine = message.text.split(whereSeparator: \.isNewline)
