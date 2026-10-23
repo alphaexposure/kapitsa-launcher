@@ -42,6 +42,12 @@ is committed, and note the commit.
 - [ ] **Token count reads high after deleting a middle turn.** The outline's estimate starts
   from what the model read for the latest reply, so it overstates until the next reply.
 
+## Notes for the GitHub README
+
+- **Selecting reply text:** each block of a reply (a paragraph, a list item, a table cell)
+  selects on its own; a drag can't select across blocks. Use the reply's Copy button for
+  the whole reply. This is a SwiftUI text limitation.
+
 ## Porting
 
 - [ ] **Port the Chat page to Splash Launcher.** Bring the native chat (streaming, thinking
