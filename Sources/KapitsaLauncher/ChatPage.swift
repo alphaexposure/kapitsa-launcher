@@ -651,21 +651,21 @@ private struct ChatTopicRow: View {
             .accessibilityLabel("\(topic.name), \(topic.mentions.count) questions")
             if isExpanded {
                 ForEach(Array(topic.mentions.enumerated()), id: \.offset) { index, mention in
-                    row(key: index, action: { onSelect(mention.id) }) {
+                    row(key: index, help: mention.fullQuestion, action: { onSelect(mention.id) }) {
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
                             Text("\(mention.number)").font(.caption.weight(.semibold)).monospacedDigit()
                                 .foregroundStyle(KapitsaTheme.accent).frame(minWidth: 16, alignment: .trailing)
                             Text(mention.question).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
                         .padding(.leading, 14)
-                        .help(mention.fullQuestion)
                     }
                 }
             }
         }
     }
 
-    private func row(key: Int, action: @escaping () -> Void, @ViewBuilder content: () -> some View) -> some View {
+    private func row(key: Int, help: String = "", action: @escaping () -> Void,
+                     @ViewBuilder content: () -> some View) -> some View {
         Button(action: action) {
             content()
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -673,6 +673,7 @@ private struct ChatTopicRow: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .help(help)
         .background(hovered == key ? KapitsaTheme.inset : .clear, in: RoundedRectangle(cornerRadius: 6))
         .onHover { hovered = $0 ? key : (hovered == key ? nil : hovered) }
     }
@@ -733,7 +734,9 @@ private struct ChatOutlineRow: View {
                     .help(isCollapsed ? "Show this reply's headings" : "Hide this reply's headings")
                     .accessibilityLabel(isCollapsed ? "Expand question \(entry.number)" : "Collapse question \(entry.number)")
                 }
-                item(entry.id, key: -1) {
+                // The tooltip goes on the title's own button: macOS doesn't reliably show one set
+                // on a row that holds buttons.
+                item(entry.id, key: -1, help: entry.fullQuestion) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text("\(entry.number)").font(.caption.weight(.semibold)).monospacedDigit()
                             .foregroundStyle(KapitsaTheme.accent).frame(minWidth: 16, alignment: .trailing)
@@ -744,7 +747,6 @@ private struct ChatOutlineRow: View {
                     }
                 }
             }
-            .help(entry.fullQuestion)
             if let replyID = entry.replyID, !isCollapsed {
                 ForEach(Array(entry.headings.enumerated()), id: \.offset) { index, heading in
                     item(replyID, key: index) {
@@ -758,7 +760,8 @@ private struct ChatOutlineRow: View {
     }
 
     /// A row that scrolls to `target` when clicked; headings jump to the start of their reply.
-    private func item(_ target: UUID, key: Int, @ViewBuilder content: () -> some View) -> some View {
+    private func item(_ target: UUID, key: Int, help: String = "",
+                      @ViewBuilder content: () -> some View) -> some View {
         Button { onSelect(target) } label: {
             content()
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -766,6 +769,7 @@ private struct ChatOutlineRow: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .help(help)
         .background(hovered == key ? KapitsaTheme.inset : .clear, in: RoundedRectangle(cornerRadius: 6))
         .onHover { hovered = $0 ? key : (hovered == key ? nil : hovered) }
     }
