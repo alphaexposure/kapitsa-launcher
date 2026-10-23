@@ -96,7 +96,11 @@ struct ChatPage: View {
         ScrollViewReader { proxy in
             HStack(alignment: .top, spacing: 12) {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 18) {
+                    // Not lazy: a lazy stack guesses the height of messages it hasn't drawn, so
+                    // jumping to the end past long replies could land below the content and show
+                    // a blank view until the next scroll. Finished messages aren't redrawn while
+                    // a reply streams, so measuring them all costs little.
+                    VStack(alignment: .leading, spacing: 18) {
                         if chat.messages.isEmpty && chat.liveReply == nil {
                             VStack(spacing: 10) {
                                 KapitsaMarkShape().fill(KapitsaTheme.accent.opacity(0.5)).frame(width: 34, height: 34)
@@ -136,12 +140,7 @@ struct ChatPage: View {
                     ChatOutlineView(
                         messages: chat.messages, contextTokens: controller.engine.contextTokens,
                         canFindTopics: controller.chatConnection != nil, topicProgress: chat.topicProgress,
-                        onSelect: { id in
-                            // The lazy list guesses the height of rows it hasn't drawn, so the first
-                            // jump can land short; once those rows are drawn, a second one is exact.
-                            proxy.scrollTo(id, anchor: .top)
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { proxy.scrollTo(id, anchor: .top) }
-                        },
+                        onSelect: { proxy.scrollTo($0, anchor: .top) },
                         onCollapse: { chat.setOutlineCollapsed($0, questions: $1) },
                         onFindTopics: { if let connection = controller.chatConnection { chat.findMissingTopics(connection: connection) } },
                         onRedoTopics: { if let connection = controller.chatConnection { chat.redoAllTopics(connection: connection) } },
