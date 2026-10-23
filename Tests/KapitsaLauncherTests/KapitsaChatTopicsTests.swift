@@ -44,11 +44,15 @@ final class KapitsaChatTopicsTests: XCTestCase {
         Sensitive skin = Temperature sensitive skin | skin sensitivity
         Funchal = Madeira
         Invented = Cost of living
+        Funchal = Cost of living
         """
         let merges = KapitsaChatTopics.parseMerges(text, known: known)
         XCTAssertEqual(merges, ["temperature sensitive skin": "Sensitive skin", "skin sensitivity": "Sensitive skin"])
         XCTAssertEqual(KapitsaChatTopics.applying(merges, to: ["Skin sensitivity", "Funchal", "Sensitive skin"]),
                        ["Sensitive skin", "Funchal"])
+        XCTAssertTrue(KapitsaChatTopics.sharesWord("Daughter schooling", "Family schooling options"))
+        XCTAssertTrue(KapitsaChatTopics.sharesWord("Budget constraint", "Budget constraints"))
+        XCTAssertFalse(KapitsaChatTopics.sharesWord("Budget constraints", "Czech EU residency"))
     }
 
     func testIndexGroupsTopicsAcrossQuestionsAlphabetically() {
@@ -120,7 +124,7 @@ final class KapitsaChatTopicsControllerTests: XCTestCase {
         let chat = controller(messages, file: file) { request in
             let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
             let text = ((body["messages"] as! [[String: String]])[1])["content"]!
-            let topic = text.hasPrefix("Reply") || text.contains("Question") ? (text.contains("A1") ? "First" : "Third") : "First = Third"
+            let topic = text.hasPrefix("Reply") || text.contains("Question") ? (text.contains("A1") ? "First topic" : "Third topic") : "First topic = Third topic"
             return try JSONSerialization.data(withJSONObject: ["choices": [["message": ["content": topic]]]])
         }
         XCTAssertEqual(chat.repliesNeedingTopics, 2)
@@ -128,7 +132,7 @@ final class KapitsaChatTopicsControllerTests: XCTestCase {
         XCTAssertEqual(chat.topicProgress, .init(done: 0, total: 2))
         for _ in 0..<200 where chat.topicProgress != nil { try await Task.sleep(for: .milliseconds(5)) }
         // The merge request at the end said First and Third are the same concept.
-        XCTAssertEqual(chat.messages.compactMap(\.topics), [["First"], ["Done"], ["First"]])
+        XCTAssertEqual(chat.messages.compactMap(\.topics), [["First topic"], ["Done"], ["First topic"]])
         XCTAssertEqual(chat.repliesNeedingTopics, 0)
         XCTAssertEqual(KapitsaChatStore(url: file).load(), chat.messages)
     }

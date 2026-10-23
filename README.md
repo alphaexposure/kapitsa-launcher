@@ -55,6 +55,11 @@ A native macOS app for starting, stopping and monitoring a local
     - **Save the summary as a separate file:** `<name>.md` and `<name> – Summary.md` side by
       side, the summary linking to the full file.
     - **Exclude thinking**, for a shorter full conversation.
+    - **Add topics as tags:** the chat's topics as `tags` in front matter at the top of the
+      file, for note apps such as Obsidian; spaces become hyphens.
+
+    Replies with topics get a `Topics:` line, and a **Topics** index at the end links each topic
+    to its questions (in the full conversation's file, for a summary saved separately).
   - **Delete a turn:** the trash button under a reply removes it and its question, after asking,
     including from what the model sees in later replies.
   - **Auto-scroll:** follows the reply as it streams; turn it off to read earlier turns while

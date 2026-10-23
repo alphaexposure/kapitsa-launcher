@@ -71,6 +71,57 @@ final class KapitsaChatExportTests: XCTestCase {
         XCTAssertTrue(export.markdown.contains("<sub>288 tokens · 21.3 tok/s</sub>"))
     }
 
+    private func topicConversation() -> [KapitsaChatMessage] {
+        [
+            KapitsaChatMessage(role: .user, text: "Warm places?"),
+            KapitsaChatMessage(role: .assistant, text: "Madeira.", topics: ["Funchal Madeira", "Sensitive skin"]),
+            KapitsaChatMessage(role: .user, text: "Costs?"),
+            KapitsaChatMessage(role: .assistant, text: "Cheaper.", topics: ["Cost of living", "Funchal Madeira"]),
+        ]
+    }
+
+    func testTopicsGetALineUnderEachReplyAndAnIndexLinkingToQuestions() {
+        let markdown = KapitsaChatExport(messages: topicConversation(), exportedAt: sent, timeZone: utc).markdown
+        XCTAssertTrue(markdown.hasPrefix("# Warm places?"), "no tags unless asked for")
+        XCTAssertTrue(markdown.contains("<a id=\"question-2\"></a>\n## You"))
+        XCTAssertTrue(markdown.contains("Madeira.\n\n_Topics: Funchal Madeira · Sensitive skin_"))
+        XCTAssertTrue(markdown.hasSuffix("""
+        ## Topics
+
+        - **Cost of living**: Question [2](#question-2)
+        - **Funchal Madeira**: Questions [1](#question-1), [2](#question-2)
+        - **Sensitive skin**: Question [1](#question-1)
+
+        """))
+    }
+
+    func testTopicTagsGoInFrontMatterWithoutSpaces() {
+        let markdown = KapitsaChatExport(messages: topicConversation(), includeTopicTags: true,
+                                         exportedAt: sent, timeZone: utc).markdown
+        XCTAssertTrue(markdown.hasPrefix("""
+        ---
+        tags:
+          - Cost-of-living
+          - Funchal-Madeira
+          - Sensitive-skin
+        ---
+
+        # Warm places?
+        """))
+        XCTAssertEqual(KapitsaChatExport.tag("3BR rentals (Lisbon)"), "3BR-rentals-Lisbon")
+    }
+
+    func testASeparateSummaryLinksTopicsToTheFullConversation() {
+        let markdown = KapitsaChatExport(messages: topicConversation(),
+                                         summary: KapitsaChatSummary(text: "Short.", model: "m"),
+                                         includeConversation: false, fullConversationFileName: "Warm chat.md").markdown
+        XCTAssertTrue(markdown.contains("- **Funchal Madeira**: Questions [1](Warm%20chat.md#question-1), [2](Warm%20chat.md#question-2)"))
+        XCTAssertFalse(markdown.contains("<a id="))
+        let alone = KapitsaChatExport(messages: topicConversation(), summary: KapitsaChatSummary(text: "Short.", model: "m"),
+                                      includeConversation: false).markdown
+        XCTAssertTrue(alone.contains("- **Funchal Madeira**: Questions 1, 2"))
+    }
+
     func testSingleTurnTakesTheQuestionAndItsReply() {
         let messages = conversation()
         let turn = KapitsaChatExport.turn(endingWith: messages[3].id, in: messages)

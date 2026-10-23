@@ -98,7 +98,9 @@ enum KapitsaChatTopics {
     }
 
     /// Lines of "Name = other | other", keeping only names that were in the list, so the model
-    /// can't invent topics. Keys are folded with `key(_:)`.
+    /// can't invent topics, and only names that share a word, so related but different
+    /// concepts ("Budget constraints", "Czech EU residency") stay apart. Merges run after every
+    /// reply, so a loose one would compound. Keys are folded with `key(_:)`.
     static func parseMerges(_ text: String, known: [String]) -> [String: String] {
         let spellings = Dictionary(known.map { (key($0), $0) }, uniquingKeysWith: { first, _ in first })
         var merges: [String: String] = [:]
@@ -106,7 +108,8 @@ enum KapitsaChatTopics {
             let parts = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
             guard parts.count == 2, let target = spellings[key(clean(parts[0]))] else { continue }
             for other in parts[1].split(separator: "|").map({ key(clean(String($0))) })
-            where other != key(target) && spellings[other] != nil && merges[key(target)] == nil {
+            where other != key(target) && merges[key(target)] == nil
+                && spellings[other].map({ sharesWord($0, target) }) == true {
                 merges[other] = target
             }
         }
@@ -117,6 +120,17 @@ enum KapitsaChatTopics {
     static func applying(_ merges: [String: String], to topics: [String]) -> [String] {
         var seen = Set<String>()
         return topics.map { merges[key($0)] ?? $0 }.filter { seen.insert(key($0)).inserted }
+    }
+
+    /// Whether two names have a word of three or more letters in common, ignoring case,
+    /// accents and a plural "s".
+    static func sharesWord(_ a: String, _ b: String) -> Bool {
+        func words(_ name: String) -> Set<String> {
+            Set(key(name).components(separatedBy: CharacterSet.alphanumerics.inverted)
+                .filter { $0.count >= 3 }
+                .map { $0.hasSuffix("s") && $0.count > 3 ? String($0.dropLast()) : $0 })
+        }
+        return !words(a).isDisjoint(with: words(b))
     }
 
     private static func clean(_ name: String) -> String {
