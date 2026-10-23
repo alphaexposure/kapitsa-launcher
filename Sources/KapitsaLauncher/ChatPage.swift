@@ -433,7 +433,7 @@ private struct ChatOutlineView: View, Equatable {
 /// The topic index: the places the replies discussed, then themes, each opening to its topics
 /// (a theme of one topic shows just the topic), and each place or topic to the questions
 /// where it came up; the most discussed first. A
-/// filter flattens it to the matching places and topics.
+/// filter flattens it to the matching themes, places and topics.
 private struct ChatTopicsView: View {
     let entries: [KapitsaChatOutline.Entry]
     let themes: [String: String]
@@ -453,7 +453,7 @@ private struct ChatTopicsView: View {
         let index = KapitsaChatTopics.index(entries, themes: themes)
         let missing = entries.filter(\.needsTopics).count
         VStack(alignment: .leading, spacing: 6) {
-            TextField("Filter places and topics", text: $filter)
+            TextField("Filter places, themes and topics", text: $filter)
                 .textFieldStyle(.roundedBorder).controlSize(.small)
                 .padding(.horizontal, 12)
             HStack {
@@ -516,13 +516,31 @@ private struct ChatTopicsView: View {
                             } }
                         }
                     } else {
-                        ForEach(index.all.filter { $0.name.localizedCaseInsensitiveContains(filter) }) { topic in
-                            ChatTopicRow(topic: topic, isExpanded: true, onToggle: {}, onSelect: onSelect)
-                        }
+                        filtered(index)
                     }
                 }
                 .padding(.horizontal, 6).padding(.bottom, 10)
             }
+        }
+    }
+
+    /// Themes whose name matches, open to all their topics, then the other matching places and topics.
+    @ViewBuilder
+    private func filtered(_ index: KapitsaChatTopics.Index) -> some View {
+        let themes = index.themes.filter { $0.name.localizedCaseInsensitiveContains(filter) }
+        let inThemes = Set(themes.flatMap(\.topics).map(\.id))
+        let topics = index.all.filter { $0.name.localizedCaseInsensitiveContains(filter) && !inThemes.contains($0.id) }
+        ForEach(themes) { theme in
+            let key = "theme:" + theme.name
+            ChatThemeRow(theme: theme, expanded: Binding(get: { expanded.union([key]) }, set: { expanded = $0 }),
+                         onSelect: onSelect)
+        }
+        ForEach(topics) { topic in
+            ChatTopicRow(topic: topic, isExpanded: true, onToggle: {}, onSelect: onSelect)
+        }
+        if themes.isEmpty && topics.isEmpty {
+            Text("Nothing matches “\(filter)”.").font(.caption).foregroundStyle(.secondary)
+                .padding(.horizontal, 6).padding(.top, 6)
         }
     }
 
