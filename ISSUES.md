@@ -73,6 +73,10 @@ is committed, and note the commit.
   levels, reasoning, attachments, outline, export and summary, auto-scroll, delete) to Splash
   Launcher. Check how Splash's server takes thinking settings and reports usage, and keep
   Splash Launcher's own colour scheme.
+- [ ] **Chat from other devices (maybe).** The launcher serves a small web version of its Chat
+  page, sharing the same saved chats, outline, topics and versions, reachable over Tailscale
+  (for example with `tailscale serve`) and never the open internet. Today a phone can reach
+  only Kapitsa's own web chat, whose chats are separate, or the whole Mac by Screen Sharing.
 - [ ] **A standalone chat app.** A separate chat app that can point at any OpenAI-compatible
   engine (Kapitsa, Splash, LM Studio, oMLX and others) by URL, model and API key, without
   being built into a server launcher. The launchers could keep their built-in chats or
