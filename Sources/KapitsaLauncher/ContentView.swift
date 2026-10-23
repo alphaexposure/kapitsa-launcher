@@ -30,7 +30,7 @@ struct ContentView: View {
     @ViewBuilder
     private var pageContent: some View {
         switch page {
-        case .overview: scrolling { OverviewPage(controller: controller) }
+        case .overview: scrolling { OverviewPage(controller: controller, labels: chat.requestLabels) }
         case .settings: scrolling { SettingsPage(controller: controller) }
         case .app: scrolling { AppPage() }
         case .chat:

@@ -40,9 +40,12 @@ enum KapitsaChatTopics {
     static let maximumTopics = 4
     static let maximumLength = 40
     /// At most this many earlier names are sent, the most recent first, to keep the request short.
-    static let maximumExisting = 80
-    /// Enough of a long reply for its main subjects, while keeping the request quick.
-    static let textBudget = 6_000
+    static let maximumExisting = 50
+    /// Characters of the question and of the reply the request reads. A longer reply is cut to
+    /// its outline, which names its subjects and places in far fewer tokens: these requests run
+    /// after every reply, and none of their text is in Kapitsa's cache.
+    static let questionBudget = 1_000
+    static let replyBudget = 2_500
 
     struct Found: Equatable {
         var places: [String] = []
@@ -52,10 +55,43 @@ enum KapitsaChatTopics {
     static func find(question: KapitsaChatMessage?, reply: KapitsaChatMessage, existing: [String] = [],
                      connection: KapitsaChatConnection, send: KapitsaChatSummary.Send) async throws -> Found {
         let existing = Array(existing.prefix(maximumExisting))
-        let instructions = existing.isEmpty ? Self.instructions : Self.instructions + reuseInstructions(existing)
-        let exchange = KapitsaChatSummary.transcript([question, reply].compactMap { $0 })
-        let text = KapitsaChatSummary.sections(exchange, budget: textBudget).first ?? ""
+        var question = question, reply = reply
+        if let text = question?.text { question?.text = String(text.prefix(questionBudget)) }
+        reply.text = outline(reply.text, budget: replyBudget)
+        // The names go after the exchange, so the fixed instructions are the same at the start
+        // of every request and Kapitsa can reuse them from its cache.
+        let text = KapitsaChatSummary.transcript([question, reply].compactMap { $0 }).joined(separator: "\n\n")
+            + (existing.isEmpty ? "" : reuseInstructions(existing))
         return parse(try await ask(instructions, text, connection: connection, send: send))
+    }
+
+    /// A reply that fits the budget whole; otherwise its headings, and the first sentence of
+    /// each paragraph, list item and table row, without code, up to the budget.
+    static func outline(_ text: String, budget: Int) -> String {
+        guard text.count > budget else { return text }
+        var lines: [String] = []
+        var inCode = false
+        for line in text.split(whereSeparator: \.isNewline).map({ $0.trimmingCharacters(in: .whitespaces) }) {
+            if line.hasPrefix("```") { inCode.toggle(); continue }
+            // Blank lines, rules and table separators such as |---|---|.
+            guard !inCode, line.contains(where: { $0.isLetter || $0.isNumber }) else { continue }
+            lines.append(line.hasPrefix("#") ? line : firstSentence(line))
+        }
+        return String(lines.joined(separator: "\n").prefix(budget))
+    }
+
+    /// Up to the first full stop, question or exclamation mark after a few words, or 160 characters.
+    private static func firstSentence(_ line: String) -> String {
+        let limit = 160
+        var end = line.startIndex
+        var count = 0
+        for index in line.indices {
+            count += 1
+            end = line.index(after: index)
+            if count >= 30, ".?!".contains(line[index]), end == line.endIndex || line[end] == " " { break }
+            if count >= limit { return String(line[..<end]) + "…" }
+        }
+        return String(line[..<end])
     }
 
     /// Asks which theme each topic belongs to. With `existingThemes`, topics join those where

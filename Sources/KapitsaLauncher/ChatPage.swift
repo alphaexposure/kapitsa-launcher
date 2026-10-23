@@ -192,8 +192,9 @@ struct ChatPage: View {
         let contextTokens = controller.engine.contextTokens
         summaryTask = Task {
             do {
-                let summary = try await KapitsaChatSummary.write(for: messages, connection: connection,
-                                                                 contextTokens: contextTokens)
+                let summary = try await KapitsaChatSummary.write(
+                    for: messages, connection: connection, contextTokens: contextTokens,
+                    send: chat.requestLabels.labelling(KapitsaChatSummary.urlSessionSend, as: .summary))
                 if !Task.isCancelled { write(messages, to: url, options: options, summary: summary) }
             } catch {
                 if !Task.isCancelled { exportError = error.localizedDescription }

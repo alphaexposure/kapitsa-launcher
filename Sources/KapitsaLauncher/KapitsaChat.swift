@@ -269,6 +269,8 @@ final class KapitsaChatController: ObservableObject {
     private let streamLines: LineStreamer
     private let now: () -> Date
     private let send: KapitsaChatSummary.Send
+    /// The launcher's own requests, so the Overview can say which one it shows.
+    let requestLabels = KapitsaRequestLabels()
     private var task: Task<Void, Never>?
     private var topicTask: Task<Void, Never>?
 
@@ -392,8 +394,8 @@ final class KapitsaChatController: ObservableObject {
         let ungrouped = regroup ? topics : topics.filter { topicThemes[KapitsaChatTopics.key($0)] == nil }
         let existing = regroup ? [] : Array(Set(topicThemes.values)).sorted()
         guard !ungrouped.isEmpty,
-              let themes = try? await KapitsaChatTopics.themes(for: ungrouped, existingThemes: existing,
-                                                               connection: connection, send: send) else { return }
+              let themes = try? await KapitsaChatTopics.themes(for: ungrouped, existingThemes: existing, connection: connection,
+                                                               send: requestLabels.labelling(send, as: .themes)) else { return }
         if regroup { topicThemes = [:] }
         topicThemes.merge(themes) { _, new in new }
         // Themes of topics no longer in the chat, after deletes or a redo.
@@ -426,7 +428,8 @@ final class KapitsaChatController: ObservableObject {
         let question = index > 0 && messages[index - 1].role == .user ? messages[index - 1] : nil
         let existing = KapitsaChatTopics.existing(in: messages, excluding: replyID)
         guard let found = try? await KapitsaChatTopics.find(question: question, reply: messages[index],
-                                                            existing: existing, connection: connection, send: send),
+                                                            existing: existing, connection: connection,
+                                                            send: requestLabels.labelling(send, as: .topics)),
               let current = messages.firstIndex(where: { $0.id == replyID }) else { return }
         messages[current].topics = found.topics
         messages[current].places = found.places
@@ -454,6 +457,7 @@ final class KapitsaChatController: ObservableObject {
         reply.stats = outcome.stats
         reply.errorMessage = outcome.errorMessage
         reply.wasStopped = outcome.wasStopped
+        requestLabels.record(.chatReply, promptTokens: outcome.stats.promptTokens, outputTokens: outcome.stats.outputTokens)
         messages.append(reply)
         liveReply = nil
         task = nil

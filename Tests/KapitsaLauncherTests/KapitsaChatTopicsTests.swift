@@ -36,10 +36,38 @@ final class KapitsaChatTopicsTests: XCTestCase {
         let connection = KapitsaChatConnection(baseURL: URL(string: "http://127.0.0.1:8000/")!, apiKey: nil, model: "m")
         _ = try await KapitsaChatTopics.find(question: nil, reply: reply, existing: existing, connection: connection) { request in
             let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
-            let instructions = ((body["messages"] as! [[String: String]])[0])["content"]!
-            XCTAssertTrue(instructions.contains("Cost of living\nPlace: Funchal\nClimate\nList only what this exchange itself is about"))
+            let parts = body["messages"] as! [[String: String]]
+            // The fixed instructions come first, for Kapitsa's cache; the names follow the exchange.
+            XCTAssertEqual(parts[0]["content"], KapitsaChatTopics.instructions)
+            XCTAssertTrue(parts[1]["content"]!.hasPrefix("Reply 1:\nFunchal again."))
+            XCTAssertTrue(parts[1]["content"]!.contains("Cost of living\nPlace: Funchal\nClimate\nList only what this exchange itself is about"))
             return try JSONSerialization.data(withJSONObject: ["choices": [["message": ["content": "Place: Funchal"]]]])
         }
+    }
+
+    func testALongReplyIsCutToItsOutline() {
+        let paragraph = "Funchal stays mild all year, with highs near 22°C. It rarely freezes and the sea stays warm."
+        let reply = """
+        ## Climate
+
+        \(paragraph)
+
+        - **Chania** is drier. Summers are hot.
+        | City | High |
+        |------|------|
+        | Funchal | 22°C |
+        ```
+        let ignored = "code is left out"
+        ```
+        """
+        XCTAssertEqual(KapitsaChatTopics.outline(reply, budget: 10_000), reply, "a reply that fits is sent whole")
+        XCTAssertEqual(KapitsaChatTopics.outline(reply, budget: 200), """
+        ## Climate
+        Funchal stays mild all year, with highs near 22°C.
+        - **Chania** is drier. Summers are hot.
+        | City | High |
+        | Funchal | 22°C |
+        """)
     }
 
     func testThemesKeepOnlyKnownTopicsOnceEach() {

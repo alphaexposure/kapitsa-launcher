@@ -3,6 +3,9 @@ import SwiftUI
 /// Server status, what Kapitsa reported about its engine, token activity and the latest request.
 struct OverviewPage: View {
     @ObservedObject var controller: KapitsaProcessController
+    @ObservedObject var labels: KapitsaRequestLabels
+    /// Show the latest chat reply, or the latest request of any kind, background ones included.
+    @AppStorage("KapitsaLauncher.overviewShowsChatReplies") private var showsChatReplies = true
 
     private var isLive: Bool { controller.readiness == .ready && !controller.isStopping }
     private var engine: KapitsaEngineInfo? { isLive ? controller.engine : nil }
@@ -136,13 +139,21 @@ struct OverviewPage: View {
 
     @ViewBuilder
     private var latestRequestSection: some View {
-        let request = controller.lastRequest
-        HStack {
-            Text("Latest request").font(.headline)
+        let request = showsChatReplies
+            ? controller.recentRequests.first { labels.kind(of: $0) == .chatReply } : controller.lastRequest
+        HStack(spacing: 10) {
+            Text(showsChatReplies ? "Latest chat reply" : "Latest request").font(.headline)
+            Picker("Show", selection: $showsChatReplies) {
+                Text("Chat reply").tag(true)
+                Text("Any request").tag(false)
+            }
+            .pickerStyle(.segmented).labelsHidden().fixedSize()
+            .help("Chat reply shows your latest answer in the Chat page. Any request also shows the short background requests the launcher makes for the topic index, and export summaries.")
             Spacer()
-            Text(request.map { "Finished at \($0.finishedAt) · from Kapitsa's request log" }
-                 ?? (controller.state.isRunning ? "Waiting for the first request" : "Available once Kapitsa handles a request"))
-                .font(.caption).foregroundStyle(.secondary)
+            Text(request.map { "\(requestTitle($0)) · finished at \($0.finishedAt)" }
+                 ?? (!controller.state.isRunning ? "Available once Kapitsa handles a request"
+                     : showsChatReplies ? "Waiting for a chat reply" : "Waiting for the first request"))
+                .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
         }
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 28), GridItem(.flexible())], alignment: .leading, spacing: 12) {
             requestRow("Prompt tokens", value: request.map { "\($0.promptTokens.formatted()) (\($0.cachedTokens.formatted()) cached)" },
@@ -171,6 +182,10 @@ struct OverviewPage: View {
         .padding(18)
         .background(KapitsaTheme.panel, in: RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(KapitsaTheme.border, lineWidth: 1))
+    }
+
+    private func requestTitle(_ request: KapitsaRequestMetrics) -> String {
+        labels.kind(of: request)?.title ?? "From another app or Kapitsa's web page"
     }
 
     private func requestRow(_ title: String, value: String?, help: String) -> some View {

@@ -46,6 +46,9 @@ final class KapitsaProcessController: ObservableObject {
     @Published private(set) var logs = ""
     /// The most recent finished request reported in this server session's output.
     @Published private(set) var lastRequest: KapitsaRequestMetrics?
+    /// The requests finished in this server session, the most recent first, up to `recentLimit`.
+    @Published private(set) var recentRequests: [KapitsaRequestMetrics] = []
+    static let recentLimit = 100
     /// Every request finished in this server session, added up from the request lines.
     @Published private(set) var totals = KapitsaSessionTotals()
     /// What Kapitsa reported about the loaded engine while it started.
@@ -205,6 +208,7 @@ final class KapitsaProcessController: ObservableObject {
             pendingLogText = ""
             partialLogLine = Data()
             lastRequest = nil
+            recentRequests = []
             totals = KapitsaSessionTotals()
             engine = KapitsaEngineInfo()
             pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
@@ -342,6 +346,7 @@ final class KapitsaProcessController: ObservableObject {
             let line = String(decoding: buffer[buffer.startIndex..<newline], as: UTF8.self)
             if let request = KapitsaRequestMetrics(logLine: line, finishedAt: Self.clockTime(now())) {
                 lastRequest = request
+                recentRequests = [request] + recentRequests.prefix(Self.recentLimit - 1)
                 totals.add(request)
             } else {
                 engine.apply(logLine: line)
