@@ -52,10 +52,12 @@ is committed, and note the commit.
 
 ## Small fixes
 
-- [ ] **Token count reads high after deleting a middle turn.** The outline's estimate starts
-  from what the model read for the latest reply, so it overstates until the next reply.
-- [ ] **Non-places listed as places.** The model sometimes lists things like "GPS satellites"
-  as places, even though the request asks for places on a map.
+- [x] **Token count reads high after deleting a middle turn.** The outline's estimate starts
+  from what the model read for the latest reply, so it overstated until the next reply. Each
+  reply now notes what came before it, and deleted turns come off.
+- [x] **Non-places listed as places.** The model sometimes lists things like "GPS satellites"
+  as places, even though the request asks for places on a map. Places with ordinary lowercase
+  words are now dropped; Rio de Janeiro-style connectors are allowed.
 
 ## Notes for the GitHub README
 

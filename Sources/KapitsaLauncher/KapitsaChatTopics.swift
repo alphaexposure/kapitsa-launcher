@@ -146,15 +146,38 @@ enum KapitsaChatTopics {
             // A chat without places (mathematics, say) may still get "Place: none".
             if ["none", "n/a", "na", "-", "no places", "none mentioned"].contains(name.lowercased()) { continue }
             guard !name.isEmpty, name.count <= maximumLength, seen.insert(key(name)).inserted else { continue }
+            // All in lower case says nothing about which words of a place are names; capitalise them.
+            if isPlace && name == name.lowercased() { name = titleCased(name) }
             // Models often answer in lower case; names read as headings.
             if let first = name.first, first.isLowercase { name = first.uppercased() + name.dropFirst() }
             if isPlace {
-                if found.places.count < maximumPlaces { found.places.append(name) }
+                if found.places.count < maximumPlaces, looksLikePlaceName(name) { found.places.append(name) }
             } else if found.topics.count < maximumTopics {
                 found.topics.append(name)
             }
         }
         return found
+    }
+
+    /// Small words that stay lowercase inside place names, as in Rio de Janeiro or Stratford-upon-Avon.
+    private static let placeConnectors: Set<String> = [
+        "of", "the", "and", "on", "upon", "de", "del", "della", "la", "le", "les", "los", "las", "da", "do",
+        "dos", "das", "di", "du", "y", "e", "en", "sur", "am", "im", "an", "der", "aan", "van", "al", "el",
+    ]
+
+    /// Places on a map have every main word capitalised. The model sometimes lists things like
+    /// "GPS satellites" or "Atomic clocks" as places; their lowercase words give them away.
+    static func looksLikePlaceName(_ name: String) -> Bool {
+        name.split(whereSeparator: { $0 == " " || $0 == "," || $0 == "-" }).allSatisfy { word in
+            guard let first = word.first, first.isLetter else { return true }
+            return first.isUppercase || placeConnectors.contains(word.lowercased())
+        }
+    }
+
+    private static func titleCased(_ name: String) -> String {
+        name.split(separator: " ", omittingEmptySubsequences: false).map { word in
+            placeConnectors.contains(word.lowercased()) ? String(word) : word.prefix(1).uppercased() + word.dropFirst()
+        }.joined(separator: " ")
     }
 
     /// Lines of "Theme: topic | topic", keeping only topics that were asked about, so the model

@@ -48,6 +48,17 @@ final class KapitsaChatTopicsTests: XCTestCase {
         }
     }
 
+    func testThingsThatAreNotPlacesAreDropped() {
+        let found = KapitsaChatTopics.parse("""
+        Place: GPS satellites
+        Place: Atomic clocks
+        Place: Stratford-upon-Avon
+        Place: Santa Cruz, Tenerife
+        Place: rio de janeiro
+        """)
+        XCTAssertEqual(found.places, ["Stratford-upon-Avon", "Santa Cruz, Tenerife", "Rio de Janeiro"])
+    }
+
     func testALongReplyIsCutToItsOutline() {
         let paragraph = "Funchal stays mild all year, with highs near 22°C. It rarely freezes and the sea stays warm."
         let reply = """

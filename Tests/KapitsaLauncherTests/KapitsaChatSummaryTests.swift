@@ -139,6 +139,17 @@ final class KapitsaChatSummaryTests: XCTestCase {
         XCTAssertNil(KapitsaChatOutline.conversationTokens(in: [KapitsaChatMessage(role: .user, text: "Hi")]))
     }
 
+    func testDeletingAnEarlierTurnLowersTheCount() {
+        let early = [KapitsaChatMessage(role: .user, text: String(repeating: "a", count: 400)),
+                     KapitsaChatMessage(role: .assistant, text: String(repeating: "b", count: 400))]
+        var reply = KapitsaChatMessage(role: .assistant, text: "Done")
+        // Sent with the early turn (200) and the question (1): 1,000 tokens read in all.
+        reply.stats = .init(promptTokens: 1_000, historyTokens: 201)
+        let question = KapitsaChatMessage(role: .user, text: "Q?")
+        XCTAssertEqual(KapitsaChatOutline.conversationTokens(in: early + [question, reply]), 1_001)
+        XCTAssertEqual(KapitsaChatOutline.conversationTokens(in: [question, reply]), 801)
+    }
+
     private func temporaryFolder() throws -> URL {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

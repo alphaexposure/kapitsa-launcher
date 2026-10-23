@@ -50,6 +50,9 @@ struct KapitsaChatMessage: Codable, Equatable, Identifiable {
         /// Time from the first reasoning token to the first answer token.
         var thinkingSeconds: Double?
         var generationSeconds: Double?
+        /// About how many tokens the messages before this reply held when it was sent, so
+        /// turns deleted since can be taken off its prompt count.
+        var historyTokens: Int?
 
         var tokensPerSecond: Double? {
             guard let outputTokens, let generationSeconds, generationSeconds > 0 else { return nil }
@@ -510,6 +513,7 @@ final class KapitsaChatController: ObservableObject {
     private func finish(replyID: UUID, outcome: Outcome, connection: KapitsaChatConnection) {
         guard var reply = liveReply, reply.id == replyID else { return }
         reply.stats = outcome.stats
+        reply.stats?.historyTokens = messages.reduce(0) { $0 + KapitsaChatSummary.estimatedTokens($1.text) }
         reply.errorMessage = outcome.errorMessage
         reply.wasStopped = outcome.wasStopped
         requestLabels.record(.chatReply, promptTokens: outcome.stats.promptTokens, outputTokens: outcome.stats.outputTokens)
