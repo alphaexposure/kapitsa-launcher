@@ -22,6 +22,9 @@ is committed, and note the commit.
   and one-off names. Replies now get places plus 2 to 4 broad topics, and topics are filed
   into at most about 10 themes kept with the chat, replacing the name-merging step.
 
+- [x] **Question titles.** The outline and topic index name each question by a short title
+  the model writes with its topics, with the question as written on hover. (b54b794, 2d79306)
+
 ## Chats
 
 - [ ] **Chat history list.** Several saved chats, each with its own file, outline and export,
@@ -34,13 +37,24 @@ is committed, and note the commit.
 - [x] **Render Markdown in replies.** Headings, lists, quotes, rules, code blocks and tables
   now render, in finished replies and while they stream.
 
+- [x] **Copy buttons.** Tables and a reply's thinking have Copy buttons, like code blocks;
+  code blocks in list items stay in the list. (9e392ba, 50bc047)
+
 - [x] **Tags in DEVONthink.** DEVONthink ignores front matter tags; a smart rule script in
   `Scripts/DEVONthink/` applies them, and exports tag only places and themes.
+
+## Overview
+
+- [x] **Latest chat reply.** The Overview showed whatever finished last, usually a background
+  topic request. It now shows the latest chat reply, or any request with what sent it, and
+  topic requests read an outline of long replies. (4fda784)
 
 ## Small fixes
 
 - [ ] **Token count reads high after deleting a middle turn.** The outline's estimate starts
   from what the model read for the latest reply, so it overstates until the next reply.
+- [ ] **Non-places listed as places.** The model sometimes lists things like "GPS satellites"
+  as places, even though the request asks for places on a map.
 
 ## Notes for the GitHub README
 
