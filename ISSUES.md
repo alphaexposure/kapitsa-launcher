@@ -6,13 +6,15 @@ is committed, and note the commit.
 
 ## Chat navigation
 
-- [ ] **Concept map.** A map of the ideas a conversation covers and how they connect, as a way
-  to navigate and review a long chat. Next in the agreed order after the outline.
+- [ ] **Concept map.** The topic index drawn as a graph: concepts as nodes sized by how often
+  they come up, linked when they appear in the same reply; clicking one highlights its
+  questions. Build only if the index alone isn't enough.
 - [ ] **Tangents.** Ask a side question about part of a reply without derailing the main
   conversation; from the original navigation ideas (outline, concept map, tangents,
   takeaways).
-- [ ] **Remember folded outline questions.** Which questions are collapsed in the outline is
-  lost when the app relaunches.
+- [x] **Remember folded outline questions.** Folds are saved with the chat in `chat.json`.
+- [x] **Topic index.** The first step toward the concept map: a Topics view listing each
+  reply's key concepts, found by the model, with the questions where they came up.
 
 ## Chats
 

@@ -11,6 +11,10 @@ enum KapitsaChatOutline {
         var replyID: UUID?
         var headings: [String] = []
         var attachmentCount = 0
+        /// Whether the question's headings are folded away, as saved with the chat.
+        var isCollapsed = false
+        /// The reply's topics; nil while they're still to be found.
+        var topics: [String]? = []
     }
 
     static let questionLength = 90
@@ -21,7 +25,8 @@ enum KapitsaChatOutline {
             switch message.role {
             case .user:
                 entries.append(Entry(id: message.id, number: entries.count + 1, question: question(for: message),
-                                     attachmentCount: message.attachments.count))
+                                     attachmentCount: message.attachments.count,
+                                     isCollapsed: message.outlineCollapsed ?? false))
             case .assistant:
                 // A reply belongs to the question before it; one without a question gets its own entry.
                 if entries.last?.replyID != nil || entries.isEmpty {
@@ -29,6 +34,7 @@ enum KapitsaChatOutline {
                 }
                 entries[entries.count - 1].replyID = message.id
                 entries[entries.count - 1].headings = headings(in: message.text)
+                entries[entries.count - 1].topics = message.needsTopics ? nil : message.topics ?? []
             }
         }
         return entries

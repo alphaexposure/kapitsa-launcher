@@ -81,7 +81,7 @@ struct ChatPage: View {
                 .help("Auto-scroll: follow the reply as it's written. Turn off to read earlier turns while the model works.")
             Toggle(isOn: $outlineShown) { Label("Outline", systemImage: "sidebar.right") }
                 .toggleStyle(.button)
-                .help("Outline: show or hide the list of questions")
+                .help("Outline: show or hide the panel of questions and topics")
             Button { export(chat.messages) } label: { Label("Export", systemImage: "square.and.arrow.up") }
                 .disabled(chat.messages.isEmpty || chat.isStreaming)
                 .help("Export: save the whole chat as a Markdown file")
@@ -133,12 +133,18 @@ struct ChatPage: View {
                 }
                 .onChange(of: autoScroll) { if autoScroll { proxy.scrollTo(endID, anchor: .bottom) } }
                 if outlineShown && !chat.messages.isEmpty {
-                    ChatOutlineView(messages: chat.messages, contextTokens: controller.engine.contextTokens) { id in
-                        // The lazy list guesses the height of rows it hasn't drawn, so the first
-                        // jump can land short; once those rows are drawn, a second one is exact.
-                        proxy.scrollTo(id, anchor: .top)
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { proxy.scrollTo(id, anchor: .top) }
-                    }
+                    ChatOutlineView(
+                        messages: chat.messages, contextTokens: controller.engine.contextTokens,
+                        canFindTopics: controller.chatConnection != nil, topicProgress: chat.topicProgress,
+                        onSelect: { id in
+                            // The lazy list guesses the height of rows it hasn't drawn, so the first
+                            // jump can land short; once those rows are drawn, a second one is exact.
+                            proxy.scrollTo(id, anchor: .top)
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { proxy.scrollTo(id, anchor: .top) }
+                        },
+                        onCollapse: { chat.setOutlineCollapsed($0, questions: $1) },
+                        onFindTopics: { if let connection = controller.chatConnection { chat.findMissingTopics(connection: connection) } },
+                        onStopFindingTopics: chat.stopFindingTopics)
                     .equatable()
                     .frame(width: 290)
                 }
@@ -300,59 +306,191 @@ private struct ChatHistory: View, Equatable {
     }
 }
 
-/// The questions asked so far, numbered, each with the headings of its reply. Clicking one
-/// scrolls the chat to it, and each question's headings fold away with its chevron.
-/// Equatable for the same reason as `ChatHistory`.
+/// The panel beside the chat, in two views. Outline: the questions asked so far, numbered,
+/// each with the headings of its reply, which fold away with its chevron. Topics: the key
+/// concepts of every reply, alphabetically, each with the questions where it came up. Clicking
+/// a question scrolls the chat to it. Equatable for the same reason as `ChatHistory`.
 private struct ChatOutlineView: View, Equatable {
+    enum Mode: String { case outline, topics }
+
     let messages: [KapitsaChatMessage]
     /// The model's context per conversation, from Kapitsa's startup lines; nil when not running.
     let contextTokens: Int?
+    /// False when Kapitsa isn't running, so there's no model to find topics.
+    let canFindTopics: Bool
+    let topicProgress: KapitsaChatController.TopicProgress?
     let onSelect: (UUID) -> Void
-    /// Questions whose headings are folded away. Kept here, not in the rows, so the lazy list
-    /// doesn't forget them when a row scrolls out of view.
-    @State private var collapsed: Set<UUID> = []
+    let onCollapse: (Bool, Set<UUID>) -> Void
+    let onFindTopics: () -> Void
+    let onStopFindingTopics: () -> Void
+    @AppStorage("chatPanelMode") private var mode = Mode.outline
 
     static func == (lhs: ChatOutlineView, rhs: ChatOutlineView) -> Bool {
         lhs.messages == rhs.messages && lhs.contextTokens == rhs.contextTokens
+            && lhs.canFindTopics == rhs.canFindTopics && lhs.topicProgress == rhs.topicProgress
     }
 
     var body: some View {
         let entries = KapitsaChatOutline.entries(from: messages)
         VStack(alignment: .leading, spacing: 0) {
-            let foldable = entries.filter { !$0.headings.isEmpty }.map(\.id)
-            let allCollapsed = !foldable.isEmpty && foldable.allSatisfy(collapsed.contains)
-            HStack {
-                Text("Outline · \(entries.count) \(entries.count == 1 ? "question" : "questions")")
-                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                Spacer()
-                if !foldable.isEmpty {
-                    Button(allCollapsed ? "Expand all" : "Collapse all") {
-                        collapsed = allCollapsed ? [] : Set(foldable)
-                    }
-                    .buttonStyle(.plain).font(.caption).foregroundStyle(KapitsaTheme.accent)
-                }
+            Picker("View", selection: $mode) {
+                Text("Outline").tag(Mode.outline)
+                Text("Topics").tag(Mode.topics)
             }
-            .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 6)
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 8)
             if let tokens = KapitsaChatOutline.conversationTokens(in: messages) {
                 ConversationSize(tokens: tokens, contextTokens: contextTokens)
                     .padding(.horizontal, 12).padding(.bottom, 8)
             }
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 2) {
-                    ForEach(entries) { entry in
-                        ChatOutlineRow(entry: entry, isCollapsed: collapsed.contains(entry.id),
-                                       onToggle: { toggle(entry.id) }, onSelect: onSelect)
-                    }
-                }
-                .padding(.horizontal, 6).padding(.bottom, 10)
+            switch mode {
+            case .outline: outline(entries)
+            case .topics:
+                ChatTopicsView(entries: entries, canFindTopics: canFindTopics, progress: topicProgress,
+                               onSelect: onSelect, onFind: onFindTopics, onStop: onStopFindingTopics)
             }
         }
         .background(KapitsaTheme.panel, in: RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(KapitsaTheme.border, lineWidth: 1))
     }
 
-    private func toggle(_ id: UUID) {
-        if collapsed.contains(id) { collapsed.remove(id) } else { collapsed.insert(id) }
+    @ViewBuilder
+    private func outline(_ entries: [KapitsaChatOutline.Entry]) -> some View {
+        let foldable = entries.filter { !$0.headings.isEmpty }
+        let allCollapsed = !foldable.isEmpty && foldable.allSatisfy(\.isCollapsed)
+        HStack {
+            Text("\(entries.count) \(entries.count == 1 ? "question" : "questions")")
+                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            Spacer()
+            if !foldable.isEmpty {
+                Button(allCollapsed ? "Expand all" : "Collapse all") {
+                    onCollapse(!allCollapsed, Set(foldable.map(\.id)))
+                }
+                .buttonStyle(.plain).font(.caption).foregroundStyle(KapitsaTheme.accent)
+            }
+        }
+        .padding(.horizontal, 12).padding(.bottom, 6)
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 2) {
+                ForEach(entries) { entry in
+                    ChatOutlineRow(entry: entry, isCollapsed: entry.isCollapsed,
+                                   onToggle: { onCollapse(!entry.isCollapsed, [entry.id]) }, onSelect: onSelect)
+                }
+            }
+            .padding(.horizontal, 6).padding(.bottom, 10)
+        }
+    }
+}
+
+/// The topic index: every concept the replies covered, alphabetically, filterable, each
+/// opening to the questions where it came up.
+private struct ChatTopicsView: View {
+    let entries: [KapitsaChatOutline.Entry]
+    let canFindTopics: Bool
+    let progress: KapitsaChatController.TopicProgress?
+    let onSelect: (UUID) -> Void
+    let onFind: () -> Void
+    let onStop: () -> Void
+    @State private var filter = ""
+    @State private var expanded: Set<String> = []
+
+    var body: some View {
+        let topics = KapitsaChatTopics.index(entries)
+        let shown = filter.isEmpty ? topics : topics.filter {
+            $0.name.localizedCaseInsensitiveContains(filter)
+        }
+        let missing = entries.filter { $0.replyID != nil && $0.topics == nil }.count
+        VStack(alignment: .leading, spacing: 6) {
+            TextField("Filter topics", text: $filter)
+                .textFieldStyle(.roundedBorder).controlSize(.small)
+                .padding(.horizontal, 12)
+            Text("\(topics.count) \(topics.count == 1 ? "topic" : "topics")")
+                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+            if let progress {
+                HStack(spacing: 6) {
+                    ProgressView(value: Double(progress.done), total: Double(max(progress.total, 1)))
+                        .progressViewStyle(.linear).controlSize(.small)
+                    Text("\(progress.done) of \(progress.total)").font(.caption).monospacedDigit()
+                    Button("Stop", action: onStop).buttonStyle(.plain).font(.caption).foregroundStyle(KapitsaTheme.accent)
+                }
+                .padding(.horizontal, 12)
+            } else if missing > 0 {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("\(missing) \(missing == 1 ? "reply has" : "replies have") no topics yet.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("Find topics", action: onFind)
+                        .buttonStyle(.plain).font(.caption.weight(.medium)).foregroundStyle(KapitsaTheme.accent)
+                        .disabled(!canFindTopics)
+                        .help(canFindTopics ? "Ask the model for the topics of those replies, one at a time, with thinking off."
+                                            : "Start Kapitsa to find topics.")
+                }
+                .padding(.horizontal, 12)
+            }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 1) {
+                    ForEach(shown) { topic in
+                        ChatTopicRow(topic: topic, isExpanded: expanded.contains(topic.id) || !filter.isEmpty,
+                                     onToggle: { toggle(topic.id) }, onSelect: onSelect)
+                    }
+                }
+                .padding(.horizontal, 6).padding(.bottom, 10)
+            }
+        }
+    }
+
+    private func toggle(_ id: String) {
+        if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
+    }
+}
+
+private struct ChatTopicRow: View {
+    let topic: KapitsaChatTopics.Topic
+    let isExpanded: Bool
+    let onToggle: () -> Void
+    let onSelect: (UUID) -> Void
+    @State private var hovered: Int?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            row(key: -1, action: onToggle) {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .frame(width: 12)
+                    Text(topic.name).font(.callout).lineLimit(1)
+                    Spacer(minLength: 4)
+                    Text("\(topic.mentions.count)").font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                }
+            }
+            .accessibilityLabel("\(topic.name), \(topic.mentions.count) questions")
+            if isExpanded {
+                ForEach(Array(topic.mentions.enumerated()), id: \.offset) { index, mention in
+                    row(key: index, action: { onSelect(mention.id) }) {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text("\(mention.number)").font(.caption.weight(.semibold)).monospacedDigit()
+                                .foregroundStyle(KapitsaTheme.accent).frame(minWidth: 16, alignment: .trailing)
+                            Text(mention.question).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        .padding(.leading, 14)
+                    }
+                }
+            }
+        }
+    }
+
+    private func row(key: Int, action: @escaping () -> Void, @ViewBuilder content: () -> some View) -> some View {
+        Button(action: action) {
+            content()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 6).padding(.vertical, 4)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(hovered == key ? KapitsaTheme.inset : .clear, in: RoundedRectangle(cornerRadius: 6))
+        .onHover { hovered = $0 ? key : (hovered == key ? nil : hovered) }
     }
 }
 

@@ -79,6 +79,13 @@ final class KapitsaChatControllerTests: XCTestCase {
         } }
     }
 
+    /// Topic requests fail, as if Kapitsa weren't there; the chat carries on without them.
+    private let noTopics: KapitsaChatSummary.Send = { _ in throw URLError(.cannotConnectToHost) }
+
+    nonisolated private static func topicsReply(_ text: String) -> Data {
+        try! JSONSerialization.data(withJSONObject: ["choices": [["message": ["content": text]]]])
+    }
+
     private func waitUntilIdle(_ chat: KapitsaChatController) async {
         for _ in 0..<200 where chat.isStreaming { try? await Task.sleep(for: .milliseconds(5)) }
     }
@@ -105,6 +112,7 @@ final class KapitsaChatControllerTests: XCTestCase {
         var times = [0.0, 0.0, 0.0, 1.0, 3.0].makeIterator()
         let chat = KapitsaChatController(
             store: KapitsaChatStore(url: file), defaults: makeDefaults(),
+            send: { _ in Self.topicsReply("- Prime numbers\n2. Factoring") },
             streamLines: lines([
                 #"data: {"choices":[{"delta":{"reasoning_content":"Let me see. "}}]}"#,
                 #"data: {"choices":[{"delta":{"content":"No, "}}]}"#,
@@ -128,11 +136,14 @@ final class KapitsaChatControllerTests: XCTestCase {
         XCTAssertEqual(reply.stats?.outputTokens, 40)
         XCTAssertEqual(reply.stats?.thinkingSeconds, 1)
         XCTAssertEqual(reply.stats?.generationSeconds, 3)
+        // Topics follow in the background, then the chat is saved again.
+        for _ in 0..<200 where chat.messages.last?.topics == nil { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertEqual(chat.messages.last?.topics, ["Prime numbers", "Factoring"])
         XCTAssertEqual(KapitsaChatStore(url: file).load(), chat.messages)
     }
 
     func testServerErrorIsShownOnTheReply() async throws {
-        let chat = KapitsaChatController(store: nil, defaults: makeDefaults(),
+        let chat = KapitsaChatController(store: nil, defaults: makeDefaults(), send: noTopics,
                                          streamLines: { _ in throw KapitsaChatError.httpStatus(401, "unauthorized") })
         chat.draft = "Hi"
         chat.send(to: connection)
@@ -141,7 +152,7 @@ final class KapitsaChatControllerTests: XCTestCase {
     }
 
     func testStopMarksTheReplyStopped() async throws {
-        let chat = KapitsaChatController(store: nil, defaults: makeDefaults(), streamLines: { _ in
+        let chat = KapitsaChatController(store: nil, defaults: makeDefaults(), send: noTopics, streamLines: { _ in
             AsyncThrowingStream { continuation in
                 continuation.yield(#"data: {"choices":[{"delta":{"content":"Partial"}}]}"#)
                 // Never finishes on its own, like a long reply.

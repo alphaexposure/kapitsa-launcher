@@ -59,10 +59,15 @@ A native macOS app for starting, stopping and monitoring a local
     including from what the model sees in later replies.
   - **Auto-scroll:** follows the reply as it streams; turn it off to read earlier turns while
     the model works. Sending a message still shows it.
-  - **Outline:** a panel beside the chat lists each question, numbered, with the headings of
-    its reply; click one to jump to it. Fold a question's headings with its chevron, or all of
-    them at once, and hide the panel with the Outline button. Its header shows about how many tokens the
-    model reads with your next message, against its context.
+  - **Outline and Topics:** a panel beside the chat, hidden with the Outline button. Its header
+    shows about how many tokens the model reads with your next message, against its context.
+    - **Outline** lists each question, numbered, with the headings of its reply; click one to
+      jump to it. Fold a question's headings with its chevron, or all of them at once; folds
+      are kept with the chat.
+    - **Topics** is an index of the key concepts the replies covered, alphabetically, each with
+      the questions where it came up. After each reply the model names its 3 to 6 concepts in
+      a short background request with thinking off; **Find topics** does the same for earlier
+      replies, one at a time. Filter the list to find a concept.
   - The conversation is kept between launches, in
     `~/Library/Application Support/KapitsaLauncher/chat.json`.
 - **Settings:** model (best for this Mac, downloaded, catalog or custom), host, port, API

@@ -69,6 +69,13 @@ struct KapitsaChatMessage: Codable, Equatable, Identifiable {
     var stats: Stats?
     var errorMessage: String?
     var wasStopped = false
+    /// For a question: whether its reply's headings are folded away in the outline.
+    var outlineCollapsed: Bool?
+    /// For a reply: the key concepts it covers, for the topic index. Nil until found.
+    var topics: [String]?
+
+    /// A reply with text whose topics haven't been found yet.
+    var needsTopics: Bool { role == .assistant && topics == nil && !text.isEmpty && errorMessage == nil }
 }
 
 /// Where the chat sends requests: the server this launcher started.
@@ -231,6 +238,8 @@ final class KapitsaChatController: ObservableObject {
     @Published var draft = ""
     @Published var pendingAttachments: [KapitsaChatAttachment] = []
     @Published var attachmentError: String?
+    /// Finding topics for earlier replies: how many are done out of how many.
+    @Published private(set) var topicProgress: TopicProgress?
     @Published var thinking: KapitsaThinkingLevel {
         didSet { defaults.set(thinking.rawValue, forKey: Self.thinkingKey) }
     }
@@ -241,14 +250,23 @@ final class KapitsaChatController: ObservableObject {
     private let store: KapitsaChatStore?
     private let streamLines: LineStreamer
     private let now: () -> Date
+    private let send: KapitsaChatSummary.Send
     private var task: Task<Void, Never>?
+    private var topicTask: Task<Void, Never>?
+
+    struct TopicProgress: Equatable {
+        var done: Int
+        let total: Int
+    }
 
     init(store: KapitsaChatStore? = .standard, defaults: UserDefaults = .standard,
+         send: @escaping KapitsaChatSummary.Send = KapitsaChatSummary.urlSessionSend,
          streamLines: @escaping LineStreamer = KapitsaChatController.urlSessionLines,
          now: @escaping () -> Date = Date.init) {
         self.store = store
         self.defaults = defaults
         self.streamLines = streamLines
+        self.send = send
         self.now = now
         self.messages = store?.load() ?? []
         self.thinking = defaults.string(forKey: Self.thinkingKey).flatMap(KapitsaThinkingLevel.init) ?? .xhigh
@@ -287,7 +305,7 @@ final class KapitsaChatController: ObservableObject {
                 connection: connection,
                 body: KapitsaChatRequest.body(history: messages, thinking: thinking, model: connection.model))
         } catch {
-            finish(replyID: reply.id, outcome: Outcome(errorMessage: error.localizedDescription))
+            finish(replyID: reply.id, outcome: Outcome(errorMessage: error.localizedDescription), connection: connection)
             return
         }
         let streamLines = self.streamLines, now = self.now
@@ -295,7 +313,7 @@ final class KapitsaChatController: ObservableObject {
             let outcome = await Self.consume(request: request, streamLines: streamLines, now: now) { batch in
                 self?.apply(batch, replyID: reply.id)
             }
-            await self?.finish(replyID: reply.id, outcome: outcome)
+            await self?.finish(replyID: reply.id, outcome: outcome, connection: connection)
         }
     }
 
@@ -312,8 +330,54 @@ final class KapitsaChatController: ObservableObject {
         store?.save(messages)
     }
 
+    /// Folds or unfolds questions' headings in the outline, and saves the choice.
+    func setOutlineCollapsed(_ collapsed: Bool, questions: Set<UUID>) {
+        for index in messages.indices where questions.contains(messages[index].id) {
+            messages[index].outlineCollapsed = collapsed ? true : nil
+        }
+        store?.save(messages)
+    }
+
+    /// How many replies have no topics yet.
+    var repliesNeedingTopics: Int { messages.filter(\.needsTopics).count }
+
+    /// Finds topics for every reply that has none, one at a time.
+    func findMissingTopics(connection: KapitsaChatConnection) {
+        let replies = messages.filter(\.needsTopics).map(\.id)
+        guard !replies.isEmpty, topicTask == nil else { return }
+        topicProgress = TopicProgress(done: 0, total: replies.count)
+        topicTask = Task {
+            for id in replies {
+                if Task.isCancelled { break }
+                await findTopics(replyID: id, connection: connection)
+                topicProgress?.done += 1
+            }
+            topicProgress = nil
+            topicTask = nil
+        }
+    }
+
+    func stopFindingTopics() {
+        topicTask?.cancel()
+        topicTask = nil
+        topicProgress = nil
+    }
+
+    /// Asks the model for one reply's topics and saves them. A failure leaves them unset, so
+    /// they can be found later; the chat itself is unaffected.
+    func findTopics(replyID: UUID, connection: KapitsaChatConnection) async {
+        guard let index = messages.firstIndex(where: { $0.id == replyID }), messages[index].needsTopics else { return }
+        let question = index > 0 && messages[index - 1].role == .user ? messages[index - 1] : nil
+        guard let topics = try? await KapitsaChatTopics.find(question: question, reply: messages[index],
+                                                             connection: connection, send: send),
+              let current = messages.firstIndex(where: { $0.id == replyID }) else { return }
+        messages[current].topics = topics
+        store?.save(messages)
+    }
+
     func clear() {
         stop()
+        stopFindingTopics()
         task = nil
         liveReply = nil
         messages = []
@@ -326,7 +390,7 @@ final class KapitsaChatController: ObservableObject {
         liveReply?.text += batch.content
     }
 
-    private func finish(replyID: UUID, outcome: Outcome) {
+    private func finish(replyID: UUID, outcome: Outcome, connection: KapitsaChatConnection) {
         guard var reply = liveReply, reply.id == replyID else { return }
         reply.stats = outcome.stats
         reply.errorMessage = outcome.errorMessage
@@ -335,6 +399,8 @@ final class KapitsaChatController: ObservableObject {
         liveReply = nil
         task = nil
         store?.save(messages)
+        // A short request with thinking off, in the background, for the topic index.
+        if reply.needsTopics { Task { await findTopics(replyID: replyID, connection: connection) } }
     }
 
     /// Reads the stream off the main thread, timing tokens as they arrive, and hands the text
