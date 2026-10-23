@@ -872,6 +872,16 @@ private struct ReasoningView: View {
             HStack(spacing: 6) {
                 if isThinkingNow { ProgressView().controlSize(.mini) }
                 Text(label).font(.callout.weight(.medium)).foregroundStyle(.secondary)
+                // The thinking is often too long to select in one go.
+                if !isLive && !message.reasoning.isEmpty {
+                    CopyButton(text: message.reasoning, help: "Copy the model's thinking") { copied in
+                        Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.leading, 6)
+                    .accessibilityLabel("Copy thinking")
+                }
             }
         }
     }
