@@ -740,10 +740,7 @@ private struct ChatMessageView: View {
                     ReasoningView(message: message, isLive: isLive)
                 }
                 if !message.text.isEmpty {
-                    Text(Self.markdown(message.text))
-                        .textSelection(.enabled)
-                        .lineSpacing(3)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    ChatMarkdownView(text: message.text)
                 } else if isLive && message.thinking == .off {
                     ProgressView().controlSize(.small)
                 }
@@ -789,12 +786,6 @@ private struct ChatMessageView: View {
             .buttonStyle(.plain)
             .help("Delete this question and reply")
             .accessibilityLabel("Delete this turn")
-    }
-
-    /// Inline Markdown (bold, italics, code, links), keeping the model's line breaks.
-    static func markdown(_ text: String) -> AttributedString {
-        (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
-            ?? AttributedString(text)
     }
 }
 
