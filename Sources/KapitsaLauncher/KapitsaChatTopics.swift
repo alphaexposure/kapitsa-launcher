@@ -6,14 +6,24 @@ enum KapitsaChatTopics {
     static let instructions = """
     List the key concepts this exchange between a person and an AI assistant is about, so the \
     person can find it again later. Give 3 to 6 short noun phrases of 1 to 4 words, most \
-    important first, such as places, ideas, methods or decisions. Capitalise only the first \
-    word and names. Write one per line, with no numbering, bullets or other text.
+    important first, such as places, ideas, methods or decisions. Write them as you would in \
+    a list of headings, for example: Sensitive skin, San Diego, EU residency, Cost of living. \
+    Write one per line, with no numbering, bullets or other text.
+    """
+
+    static let mergeInstructions = """
+    These are topic names from one conversation. Some may name the same concept in different \
+    words. Group only names that mean the same thing, not names that are merely related. For \
+    each group, write one line: the clearest name, then " = ", then the other names in the group \
+    separated by " | ". Write nothing for names without a match, and no other text.
     """
 
     /// Added when the chat already has topics, so the same concept keeps one name.
     static func reuseInstructions(_ existing: [String]) -> String {
-        "\n\nTopics already used in this conversation:\n" + existing.joined(separator: "\n")
-            + "\nWhen a concept here matches one of these, use that exact wording instead of a new one."
+        "\n\nNames already used for earlier parts of this conversation:\n" + existing.joined(separator: "\n")
+            + "\nList only what this exchange itself is about, starting with what is new in it. If one of "
+            + "its concepts is the same as a name above, write that exact name instead of a new wording; "
+            + "don't list a name above just because it appears there."
     }
 
     /// At most this many earlier topics are sent, the most recent first, to keep the request short.
@@ -47,6 +57,8 @@ enum KapitsaChatTopics {
                 .replacingOccurrences(of: #"^(?:[-*•·]+|\d+[.)])\s*"#, with: "", options: .regularExpression)
             topic = topic.trimmingCharacters(in: CharacterSet(charactersIn: " \"'`*_.,;:"))
             guard !topic.isEmpty, topic.count <= maximumLength, seen.insert(key(topic)).inserted else { continue }
+            // Models often answer in lower case; topics read as headings.
+            if let first = topic.first, first.isLowercase { topic = first.uppercased() + topic.dropFirst() }
             topics.append(topic)
             if topics.count == maximumCount { break }
         }
@@ -70,6 +82,45 @@ enum KapitsaChatTopics {
         /// As first written; later spellings that differ only in case join it.
         let name: String
         var mentions: [Mention]
+    }
+
+    /// Asks the model which of a chat's topics name the same concept. Returns, for each name
+    /// to replace, the name to use instead.
+    static func merges(for topics: [String], connection: KapitsaChatConnection,
+                       send: KapitsaChatSummary.Send) async throws -> [String: String] {
+        guard topics.count > 1 else { return [:] }
+        var request = try KapitsaChatRequest.urlRequest(
+            connection: connection,
+            body: KapitsaChatSummary.requestBody(instructions: mergeInstructions,
+                                                 text: topics.joined(separator: "\n"), model: connection.model))
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        return parseMerges(try KapitsaChatSummary.replyText(from: try await send(request)), known: topics)
+    }
+
+    /// Lines of "Name = other | other", keeping only names that were in the list, so the model
+    /// can't invent topics. Keys are folded with `key(_:)`.
+    static func parseMerges(_ text: String, known: [String]) -> [String: String] {
+        let spellings = Dictionary(known.map { (key($0), $0) }, uniquingKeysWith: { first, _ in first })
+        var merges: [String: String] = [:]
+        for line in text.split(whereSeparator: \.isNewline) {
+            let parts = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            guard parts.count == 2, let target = spellings[key(clean(parts[0]))] else { continue }
+            for other in parts[1].split(separator: "|").map({ key(clean(String($0))) })
+            where other != key(target) && spellings[other] != nil && merges[key(target)] == nil {
+                merges[other] = target
+            }
+        }
+        return merges
+    }
+
+    /// Replaces merged names in a reply's topics, dropping any that become repeats.
+    static func applying(_ merges: [String: String], to topics: [String]) -> [String] {
+        var seen = Set<String>()
+        return topics.map { merges[key($0)] ?? $0 }.filter { seen.insert(key($0)).inserted }
+    }
+
+    private static func clean(_ name: String) -> String {
+        name.trimmingCharacters(in: CharacterSet(charactersIn: " \"'`*_-•"))
     }
 
     /// The chat's topics so far, newest first, one spelling each, for the model to reuse.

@@ -13,8 +13,10 @@ is committed, and note the commit.
   conversation; from the original navigation ideas (outline, concept map, tangents,
   takeaways).
 - [x] **Remember folded outline questions.** Folds are saved with the chat in `chat.json`.
+  (87c1a6c)
 - [x] **Topic index.** The first step toward the concept map: a Topics view listing each
-  reply's key concepts, found by the model, with the questions where they came up.
+  reply's key concepts, found by the model, with the questions where they came up; names
+  are reused and merged across the chat. (87c1a6c, a0077fc, and the merge commit after it)
 
 ## Chats
 

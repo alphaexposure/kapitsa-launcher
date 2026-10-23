@@ -352,9 +352,23 @@ final class KapitsaChatController: ObservableObject {
                 await findTopics(replyID: id, connection: connection)
                 topicProgress?.done += 1
             }
+            if !Task.isCancelled { await mergeTopics(connection: connection) }
             topicProgress = nil
             topicTask = nil
         }
+    }
+
+    /// Merges topic names that mean the same concept across the chat, in one request. A
+    /// failure leaves the topics as they were.
+    func mergeTopics(connection: KapitsaChatConnection) async {
+        var seen = Set<String>()
+        let topics = messages.flatMap { $0.topics ?? [] }.filter { seen.insert(KapitsaChatTopics.key($0)).inserted }
+        guard let merges = try? await KapitsaChatTopics.merges(for: topics, connection: connection, send: send),
+              !merges.isEmpty else { return }
+        for index in messages.indices {
+            if let topics = messages[index].topics { messages[index].topics = KapitsaChatTopics.applying(merges, to: topics) }
+        }
+        store?.save(messages)
     }
 
     /// Forgets every reply's topics and finds them again, so they share names across the chat.
@@ -408,8 +422,14 @@ final class KapitsaChatController: ObservableObject {
         liveReply = nil
         task = nil
         store?.save(messages)
-        // A short request with thinking off, in the background, for the topic index.
-        if reply.needsTopics { Task { await findTopics(replyID: replyID, connection: connection) } }
+        // Short requests with thinking off, in the background, for the topic index: this reply's
+        // topics, then a check for names that mean the same as earlier ones.
+        if reply.needsTopics {
+            Task {
+                await findTopics(replyID: replyID, connection: connection)
+                await mergeTopics(connection: connection)
+            }
+        }
     }
 
     /// Reads the stream off the main thread, timing tokens as they arrive, and hands the text

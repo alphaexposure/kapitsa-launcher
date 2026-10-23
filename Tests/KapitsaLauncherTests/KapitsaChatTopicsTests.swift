@@ -11,7 +11,7 @@ final class KapitsaChatTopicsTests: XCTestCase {
         • "Residency permits"
         funchal
         This line is far too long to be a short concept that someone would look up later
-        Cost of living
+        cost of living
         Schools
         Walkability
         Healthcare
@@ -33,9 +33,22 @@ final class KapitsaChatTopicsTests: XCTestCase {
         _ = try await KapitsaChatTopics.find(question: nil, reply: reply, existing: existing, connection: connection) { request in
             let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
             let instructions = ((body["messages"] as! [[String: String]])[0])["content"]!
-            XCTAssertTrue(instructions.hasSuffix("Cost of living\nfunchal\nClimate\nWhen a concept here matches one of these, use that exact wording instead of a new one."))
+            XCTAssertTrue(instructions.contains("Cost of living\nfunchal\nClimate\nList only what this exchange itself is about"))
             return try JSONSerialization.data(withJSONObject: ["choices": [["message": ["content": "Funchal"]]]])
         }
+    }
+
+    func testMergesOnlyKnownNamesAndApplyThem() {
+        let known = ["Sensitive skin", "Temperature sensitive skin", "Skin sensitivity", "Funchal", "Cost of living"]
+        let text = """
+        Sensitive skin = Temperature sensitive skin | skin sensitivity
+        Funchal = Madeira
+        Invented = Cost of living
+        """
+        let merges = KapitsaChatTopics.parseMerges(text, known: known)
+        XCTAssertEqual(merges, ["temperature sensitive skin": "Sensitive skin", "skin sensitivity": "Sensitive skin"])
+        XCTAssertEqual(KapitsaChatTopics.applying(merges, to: ["Skin sensitivity", "Funchal", "Sensitive skin"]),
+                       ["Sensitive skin", "Funchal"])
     }
 
     func testIndexGroupsTopicsAcrossQuestionsAlphabetically() {
@@ -107,14 +120,15 @@ final class KapitsaChatTopicsControllerTests: XCTestCase {
         let chat = controller(messages, file: file) { request in
             let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
             let text = ((body["messages"] as! [[String: String]])[1])["content"]!
-            let topic = text.contains("A1") ? "First" : "Third"
+            let topic = text.hasPrefix("Reply") || text.contains("Question") ? (text.contains("A1") ? "First" : "Third") : "First = Third"
             return try JSONSerialization.data(withJSONObject: ["choices": [["message": ["content": topic]]]])
         }
         XCTAssertEqual(chat.repliesNeedingTopics, 2)
         chat.findMissingTopics(connection: connection)
         XCTAssertEqual(chat.topicProgress, .init(done: 0, total: 2))
         for _ in 0..<200 where chat.topicProgress != nil { try await Task.sleep(for: .milliseconds(5)) }
-        XCTAssertEqual(chat.messages.compactMap(\.topics), [["First"], ["Done"], ["Third"]])
+        // The merge request at the end said First and Third are the same concept.
+        XCTAssertEqual(chat.messages.compactMap(\.topics), [["First"], ["Done"], ["First"]])
         XCTAssertEqual(chat.repliesNeedingTopics, 0)
         XCTAssertEqual(KapitsaChatStore(url: file).load(), chat.messages)
     }
