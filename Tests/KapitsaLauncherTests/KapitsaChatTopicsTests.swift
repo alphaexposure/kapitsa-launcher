@@ -3,72 +3,76 @@ import XCTest
 @testable import KapitsaLauncher
 
 final class KapitsaChatTopicsTests: XCTestCase {
-    func testParseKeepsShortUniqueConceptsWithoutListMarks() {
+    func testParseSeparatesPlacesAndKeepsShortUniqueTopics() {
         let text = """
-        1. Funchal
-        2) 3BR rentals
-        - **Sensitive skin**
-        • "Residency permits"
-        funchal
-        This line is far too long to be a short concept that someone would look up later
-        cost of living
-        Schools
+        Place: Funchal
+        place: santa Cruz, Tenerife
+        - Place: **Chania**
+        Place: Funchal
+        Place: Atlanta
+        Place: Prague
+        1. 3BR rentals
+        - **Residency permits**
+        • "cost of living"
+        This line is far too long to be a short topic that someone would look up later
+        Schooling
         Walkability
-        Healthcare
         """
-        XCTAssertEqual(KapitsaChatTopics.parse(text),
-                       ["Funchal", "3BR rentals", "Sensitive skin", "Residency permits", "Cost of living", "Schools"])
+        XCTAssertEqual(KapitsaChatTopics.parse(text), .init(
+            places: ["Funchal", "Santa Cruz, Tenerife", "Chania", "Atlanta"],
+            topics: ["3BR rentals", "Residency permits", "Cost of living", "Schooling"]))
     }
 
-    func testEarlierTopicsAreOfferedForReuseNewestFirst() async throws {
+    func testEarlierNamesAreOfferedForReuseNewestFirst() async throws {
         let reply = KapitsaChatMessage(role: .assistant, text: "Funchal again.")
         let messages = [
-            KapitsaChatMessage(role: .assistant, text: "A", topics: ["Funchal", "Climate"]),
-            KapitsaChatMessage(role: .assistant, text: "B", topics: ["Cost of living", "funchal"]),
+            KapitsaChatMessage(role: .assistant, text: "A", topics: ["Climate"], places: ["Funchal"]),
+            KapitsaChatMessage(role: .assistant, text: "B", topics: ["Cost of living"]),
             reply,
         ]
         let existing = KapitsaChatTopics.existing(in: messages, excluding: reply.id)
-        XCTAssertEqual(existing, ["Cost of living", "funchal", "Climate"])
+        XCTAssertEqual(existing, ["Cost of living", "Place: Funchal", "Climate"])
         let connection = KapitsaChatConnection(baseURL: URL(string: "http://127.0.0.1:8000/")!, apiKey: nil, model: "m")
         _ = try await KapitsaChatTopics.find(question: nil, reply: reply, existing: existing, connection: connection) { request in
             let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
             let instructions = ((body["messages"] as! [[String: String]])[0])["content"]!
-            XCTAssertTrue(instructions.contains("Cost of living\nfunchal\nClimate\nList only what this exchange itself is about"))
-            return try JSONSerialization.data(withJSONObject: ["choices": [["message": ["content": "Funchal"]]]])
+            XCTAssertTrue(instructions.contains("Cost of living\nPlace: Funchal\nClimate\nList only what this exchange itself is about"))
+            return try JSONSerialization.data(withJSONObject: ["choices": [["message": ["content": "Place: Funchal"]]]])
         }
     }
 
-    func testMergesOnlyKnownNamesAndApplyThem() {
-        let known = ["Sensitive skin", "Temperature sensitive skin", "Skin sensitivity", "Funchal", "Cost of living"]
+    func testThemesKeepOnlyKnownTopicsOnceEach() {
         let text = """
-        Sensitive skin = Temperature sensitive skin | skin sensitivity
-        Funchal = Madeira
-        Invented = Cost of living
-        Funchal = Cost of living
+        Residency: EU family permit | czech citizenship | Invented topic
+        Climate and skin: Sensitive skin | EU family permit
+        Not a theme line
         """
-        let merges = KapitsaChatTopics.parseMerges(text, known: known)
-        XCTAssertEqual(merges, ["temperature sensitive skin": "Sensitive skin", "skin sensitivity": "Sensitive skin"])
-        XCTAssertEqual(KapitsaChatTopics.applying(merges, to: ["Skin sensitivity", "Funchal", "Sensitive skin"]),
-                       ["Sensitive skin", "Funchal"])
-        XCTAssertTrue(KapitsaChatTopics.sharesWord("Daughter schooling", "Family schooling options"))
-        XCTAssertTrue(KapitsaChatTopics.sharesWord("Budget constraint", "Budget constraints"))
-        XCTAssertFalse(KapitsaChatTopics.sharesWord("Budget constraints", "Czech EU residency"))
+        XCTAssertEqual(KapitsaChatTopics.parseThemes(text, topics: ["EU family permit", "Czech citizenship", "Sensitive skin"]), [
+            "eu family permit": "Residency", "czech citizenship": "Residency", "sensitive skin": "Climate and skin",
+        ])
     }
 
-    func testIndexGroupsTopicsAcrossQuestionsAlphabetically() {
+    func testIndexHasPlacesThenThemesMostDiscussedFirst() {
         let q1 = KapitsaChatMessage(role: .user, text: "Warm places?")
         let q2 = KapitsaChatMessage(role: .user, text: "Costs?")
         let messages = [
-            q1, KapitsaChatMessage(role: .assistant, text: "Madeira.", topics: ["Funchal", "Climate"]),
-            q2, KapitsaChatMessage(role: .assistant, text: "Cheaper.", topics: ["Cost of living", "funchal"]),
+            q1, KapitsaChatMessage(role: .assistant, text: "Madeira.", topics: ["Climate", "Sensitive skin"], places: ["Funchal"]),
+            q2, KapitsaChatMessage(role: .assistant, text: "Cheaper.", topics: ["Cost of living", "climate", "Rent"],
+                                   places: ["Chania", "funchal"]),
             KapitsaChatMessage(role: .user, text: "Pending?"), KapitsaChatMessage(role: .assistant, text: "Later."),
         ]
         let entries = KapitsaChatOutline.entries(from: messages)
         XCTAssertNil(entries[2].topics, "a reply whose topics aren't found yet")
-        let index = KapitsaChatTopics.index(entries)
-        XCTAssertEqual(index.map(\.name), ["Climate", "Cost of living", "Funchal"])
-        XCTAssertEqual(index[2].mentions.map(\.id), [q1.id, q2.id])
-        XCTAssertEqual(index[2].mentions.map(\.number), [1, 2])
+        let index = KapitsaChatTopics.index(entries, themes: [
+            "climate": "Climate and skin", "sensitive skin": "Climate and skin", "cost of living": "Costs",
+        ])
+        XCTAssertEqual(index.places.map(\.name), ["Funchal", "Chania"])
+        XCTAssertEqual(index.places[0].mentions.map(\.id), [q1.id, q2.id])
+        // Climate and skin covers both questions, Costs one; ungrouped Rent goes under Other, last.
+        XCTAssertEqual(index.themes.map(\.name), ["Climate and skin", "Costs", "Other"])
+        XCTAssertEqual(index.themes[0].topics.map(\.name), ["Climate", "Sensitive skin"])
+        XCTAssertEqual(index.themes[0].mentions.map(\.number), [1, 2])
+        XCTAssertEqual(index.themes[2].topics.map(\.name), ["Rent"])
     }
 
     func testRepliesWithoutTextNeedNoTopics() {
@@ -83,6 +87,11 @@ final class KapitsaChatTopicsTests: XCTestCase {
         let messages = try JSONDecoder().decode([KapitsaChatMessage].self, from: Data(json.utf8))
         XCTAssertNil(messages[0].topics)
         XCTAssertNil(messages[0].outlineCollapsed)
+        // A file from before themes, a plain list of messages, loads into the new document.
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).json")
+        try Data(json.utf8).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        XCTAssertEqual(KapitsaChatStore(url: file).loadDocument(), .init(messages: messages, topicThemes: [:]))
     }
 }
 
@@ -114,7 +123,7 @@ final class KapitsaChatTopicsControllerTests: XCTestCase {
         XCTAssertNil(KapitsaChatStore(url: file).load().first?.outlineCollapsed)
     }
 
-    func testFindsMissingTopicsOneAtATimeAndSavesThem() async throws {
+    func testFindsMissingTopicsThenGroupsThemAndSaves() async throws {
         let file = temporaryFile()
         let messages = [
             KapitsaChatMessage(role: .user, text: "Q1"), KapitsaChatMessage(role: .assistant, text: "A1"),
@@ -123,18 +132,41 @@ final class KapitsaChatTopicsControllerTests: XCTestCase {
         ]
         let chat = controller(messages, file: file) { request in
             let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
-            let text = ((body["messages"] as! [[String: String]])[1])["content"]!
-            let topic = text.hasPrefix("Reply") || text.contains("Question") ? (text.contains("A1") ? "First topic" : "Third topic") : "First topic = Third topic"
-            return try JSONSerialization.data(withJSONObject: ["choices": [["message": ["content": topic]]]])
+            let parts = body["messages"] as! [[String: String]]
+            let (instructions, text) = (parts[0]["content"]!, parts[1]["content"]!)
+            let reply = instructions.hasPrefix("These are topics")
+                ? "Ordinals: First topic | Third topic\nFinished: Done"
+                : (text.contains("A1") ? "Place: Lisbon\nFirst topic" : "Third topic")
+            return try JSONSerialization.data(withJSONObject: ["choices": [["message": ["content": reply]]]])
         }
         XCTAssertEqual(chat.repliesNeedingTopics, 2)
         chat.findMissingTopics(connection: connection)
         XCTAssertEqual(chat.topicProgress, .init(done: 0, total: 2))
         for _ in 0..<200 where chat.topicProgress != nil { try await Task.sleep(for: .milliseconds(5)) }
-        // The merge request at the end said First and Third are the same concept.
-        XCTAssertEqual(chat.messages.compactMap(\.topics), [["First topic"], ["Done"], ["First topic"]])
+        XCTAssertEqual(chat.messages.compactMap(\.topics), [["First topic"], ["Done"], ["Third topic"]])
+        XCTAssertEqual(chat.messages.compactMap(\.places), [["Lisbon"], []])
+        XCTAssertEqual(chat.topicThemes, ["first topic": "Ordinals", "third topic": "Ordinals", "done": "Finished"])
         XCTAssertEqual(chat.repliesNeedingTopics, 0)
-        XCTAssertEqual(KapitsaChatStore(url: file).load(), chat.messages)
+        XCTAssertEqual(KapitsaChatStore(url: file).loadDocument(), .init(messages: chat.messages, topicThemes: chat.topicThemes))
+    }
+
+    func testNewTopicsJoinExistingThemes() async throws {
+        let file = temporaryFile()
+        let store = KapitsaChatStore(url: file)
+        store.save([KapitsaChatMessage(role: .assistant, text: "A", topics: ["Rent", "Schools"])],
+                   topicThemes: ["rent": "Housing and costs"])
+        var sentInstructions = ""
+        let chat = KapitsaChatController(store: store, defaults: UserDefaults(suiteName: "KapitsaChatTopicsControllerTests")!,
+                                         send: { request in
+            let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+            let parts = body["messages"] as! [[String: String]]
+            sentInstructions = parts[0]["content"]! + "\n--\n" + parts[1]["content"]!
+            return try JSONSerialization.data(withJSONObject: ["choices": [["message": ["content": "Family: Schools"]]]])
+        }, streamLines: { _ in AsyncThrowingStream { $0.finish() } })
+        await chat.groupTopics(connection: connection)
+        XCTAssertTrue(sentInstructions.contains("already has these themes:\nHousing and costs"))
+        XCTAssertTrue(sentInstructions.hasSuffix("--\nSchools"), "only the new topic is sent")
+        XCTAssertEqual(chat.topicThemes, ["rent": "Housing and costs", "schools": "Family"])
     }
 
     func testAFailedTopicRequestLeavesTheReplyToTryAgain() async {

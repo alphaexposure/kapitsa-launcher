@@ -16,8 +16,11 @@ is committed, and note the commit.
   (87c1a6c)
 - [x] **Topic index.** The first step toward the concept map: a Topics view listing each
   reply's key concepts, found by the model, with the questions where they came up; names
-  are reused and merged across the chat. (87c1a6c, a0077fc, 42b4ba7) Exports include topic
-  lines, a linked topic index and optional tags.
+  are reused across the chat. Exports include topic lines, a linked topic index and optional
+  tags. (87c1a6c, a0077fc, 42b4ba7, 9063160)
+- [x] **Places and themes.** The index grew by 3 to 4 topics a reply, with near-duplicates
+  and one-off names. Replies now get places plus 2 to 4 broad topics, and topics are filed
+  into at most about 10 themes kept with the chat, replacing the name-merging step.
 
 ## Chats
 

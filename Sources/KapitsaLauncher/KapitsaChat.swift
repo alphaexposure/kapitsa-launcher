@@ -71,8 +71,10 @@ struct KapitsaChatMessage: Codable, Equatable, Identifiable {
     var wasStopped = false
     /// For a question: whether its reply's headings are folded away in the outline.
     var outlineCollapsed: Bool?
-    /// For a reply: the key concepts it covers, for the topic index. Nil until found.
+    /// For a reply: the broad subjects it covers, for the topic index. Nil until found.
     var topics: [String]?
+    /// For a reply: the specific places it discusses, found with its topics.
+    var places: [String]?
 
     /// A reply with text whose topics haven't been found yet.
     var needsTopics: Bool { role == .assistant && topics == nil && !text.isEmpty && errorMessage == nil }
@@ -193,15 +195,27 @@ struct KapitsaChatStore {
         return KapitsaChatStore(url: folder.appendingPathComponent("chat.json"))
     }
 
-    func load() -> [KapitsaChatMessage] {
-        guard let data = try? Data(contentsOf: url) else { return [] }
-        return (try? JSONDecoder().decode([KapitsaChatMessage].self, from: data)) ?? []
+    /// What the file holds: the messages, and which theme each topic belongs to, since themes
+    /// belong to the whole chat rather than to one message.
+    struct Document: Codable, Equatable {
+        var messages: [KapitsaChatMessage] = []
+        /// Topic key (see `KapitsaChatTopics.key`) to theme name.
+        var topicThemes: [String: String] = [:]
     }
 
-    func save(_ messages: [KapitsaChatMessage]) {
+    func load() -> [KapitsaChatMessage] { loadDocument().messages }
+
+    /// Reads the file, including the plain list of messages that earlier versions saved.
+    func loadDocument() -> Document {
+        guard let data = try? Data(contentsOf: url) else { return Document() }
+        if let document = try? JSONDecoder().decode(Document.self, from: data) { return document }
+        return Document(messages: (try? JSONDecoder().decode([KapitsaChatMessage].self, from: data)) ?? [])
+    }
+
+    func save(_ messages: [KapitsaChatMessage], topicThemes: [String: String] = [:]) {
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try JSONEncoder().encode(messages).write(to: url, options: .atomic)
+            try JSONEncoder().encode(Document(messages: messages, topicThemes: topicThemes)).write(to: url, options: .atomic)
         } catch {
             // The conversation still works; it just won't be there after a relaunch.
         }
@@ -238,6 +252,8 @@ final class KapitsaChatController: ObservableObject {
     @Published var draft = ""
     @Published var pendingAttachments: [KapitsaChatAttachment] = []
     @Published var attachmentError: String?
+    /// Which theme each topic belongs to, by topic key, for the whole chat.
+    @Published private(set) var topicThemes: [String: String]
     /// Finding topics for earlier replies: how many are done out of how many.
     @Published private(set) var topicProgress: TopicProgress?
     @Published var thinking: KapitsaThinkingLevel {
@@ -268,7 +284,9 @@ final class KapitsaChatController: ObservableObject {
         self.streamLines = streamLines
         self.send = send
         self.now = now
-        self.messages = store?.load() ?? []
+        let document = store?.loadDocument() ?? .init()
+        self.messages = document.messages
+        self.topicThemes = document.topicThemes
         self.thinking = defaults.string(forKey: Self.thinkingKey).flatMap(KapitsaThinkingLevel.init) ?? .xhigh
     }
 
@@ -321,13 +339,17 @@ final class KapitsaChatController: ObservableObject {
         task?.cancel()
     }
 
+    private func save() {
+        store?.save(messages, topicThemes: topicThemes)
+    }
+
     /// Removes a reply and the question before it, from the screen, the saved file and the
     /// history later messages send to the model.
     func deleteTurn(endingWith replyID: UUID) {
         let turn = Set(KapitsaChatExport.turn(endingWith: replyID, in: messages).map(\.id))
         guard !turn.isEmpty else { return }
         messages.removeAll { turn.contains($0.id) }
-        store?.save(messages)
+        save()
     }
 
     /// Folds or unfolds questions' headings in the outline, and saves the choice.
@@ -335,14 +357,14 @@ final class KapitsaChatController: ObservableObject {
         for index in messages.indices where questions.contains(messages[index].id) {
             messages[index].outlineCollapsed = collapsed ? true : nil
         }
-        store?.save(messages)
+        save()
     }
 
     /// How many replies have no topics yet.
     var repliesNeedingTopics: Int { messages.filter(\.needsTopics).count }
 
     /// Finds topics for every reply that has none, one at a time.
-    func findMissingTopics(connection: KapitsaChatConnection) {
+    func findMissingTopics(connection: KapitsaChatConnection, regroup: Bool = false) {
         let replies = messages.filter(\.needsTopics).map(\.id)
         guard !replies.isEmpty, topicTask == nil else { return }
         topicProgress = TopicProgress(done: 0, total: replies.count)
@@ -352,31 +374,41 @@ final class KapitsaChatController: ObservableObject {
                 await findTopics(replyID: id, connection: connection)
                 topicProgress?.done += 1
             }
-            if !Task.isCancelled { await mergeTopics(connection: connection) }
+            if !Task.isCancelled { await groupTopics(connection: connection, regroup: regroup) }
             topicProgress = nil
             topicTask = nil
         }
     }
 
-    /// Merges topic names that mean the same concept across the chat, in one request. A
-    /// failure leaves the topics as they were.
-    func mergeTopics(connection: KapitsaChatConnection) async {
+    /// Puts topics into themes, in one request. Topics that have a theme keep it, and new ones
+    /// join the existing themes where they fit, so the index doesn't reshuffle after every
+    /// reply; with `regroup`, every topic is grouped afresh. A failure leaves new topics under
+    /// Other until the next try.
+    func groupTopics(connection: KapitsaChatConnection, regroup: Bool = false) async {
         var seen = Set<String>()
         let topics = messages.flatMap { $0.topics ?? [] }.filter { seen.insert(KapitsaChatTopics.key($0)).inserted }
-        guard let merges = try? await KapitsaChatTopics.merges(for: topics, connection: connection, send: send),
-              !merges.isEmpty else { return }
-        for index in messages.indices {
-            if let topics = messages[index].topics { messages[index].topics = KapitsaChatTopics.applying(merges, to: topics) }
-        }
-        store?.save(messages)
+        let ungrouped = regroup ? topics : topics.filter { topicThemes[KapitsaChatTopics.key($0)] == nil }
+        let existing = regroup ? [] : Array(Set(topicThemes.values)).sorted()
+        guard !ungrouped.isEmpty,
+              let themes = try? await KapitsaChatTopics.themes(for: ungrouped, existingThemes: existing,
+                                                               connection: connection, send: send) else { return }
+        if regroup { topicThemes = [:] }
+        topicThemes.merge(themes) { _, new in new }
+        // Themes of topics no longer in the chat, after deletes or a redo.
+        topicThemes = topicThemes.filter { seen.contains($0.key) }
+        save()
     }
 
-    /// Forgets every reply's topics and finds them again, so they share names across the chat.
+    /// Forgets every reply's places and topics and the chat's themes, then finds them all again.
     func redoAllTopics(connection: KapitsaChatConnection) {
         stopFindingTopics()
-        for index in messages.indices where messages[index].role == .assistant { messages[index].topics = nil }
-        store?.save(messages)
-        findMissingTopics(connection: connection)
+        for index in messages.indices where messages[index].role == .assistant {
+            messages[index].topics = nil
+            messages[index].places = nil
+        }
+        topicThemes = [:]
+        save()
+        findMissingTopics(connection: connection, regroup: true)
     }
 
     func stopFindingTopics() {
@@ -391,11 +423,12 @@ final class KapitsaChatController: ObservableObject {
         guard let index = messages.firstIndex(where: { $0.id == replyID }), messages[index].needsTopics else { return }
         let question = index > 0 && messages[index - 1].role == .user ? messages[index - 1] : nil
         let existing = KapitsaChatTopics.existing(in: messages, excluding: replyID)
-        guard let topics = try? await KapitsaChatTopics.find(question: question, reply: messages[index],
-                                                             existing: existing, connection: connection, send: send),
+        guard let found = try? await KapitsaChatTopics.find(question: question, reply: messages[index],
+                                                            existing: existing, connection: connection, send: send),
               let current = messages.firstIndex(where: { $0.id == replyID }) else { return }
-        messages[current].topics = topics
-        store?.save(messages)
+        messages[current].topics = found.topics
+        messages[current].places = found.places
+        save()
     }
 
     func clear() {
@@ -404,7 +437,8 @@ final class KapitsaChatController: ObservableObject {
         task = nil
         liveReply = nil
         messages = []
-        store?.save(messages)
+        topicThemes = [:]
+        save()
     }
 
     private func apply(_ batch: Batch, replyID: UUID) {
@@ -421,13 +455,13 @@ final class KapitsaChatController: ObservableObject {
         messages.append(reply)
         liveReply = nil
         task = nil
-        store?.save(messages)
+        save()
         // Short requests with thinking off, in the background, for the topic index: this reply's
-        // topics, then a check for names that mean the same as earlier ones.
+        // places and topics, then themes for any new topics.
         if reply.needsTopics {
             Task {
                 await findTopics(replyID: replyID, connection: connection)
-                await mergeTopics(connection: connection)
+                await groupTopics(connection: connection)
             }
         }
     }

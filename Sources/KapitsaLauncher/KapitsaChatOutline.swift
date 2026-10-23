@@ -15,6 +15,8 @@ enum KapitsaChatOutline {
         var isCollapsed = false
         /// The reply's topics; nil while they're still to be found.
         var topics: [String]? = []
+        /// The reply's places.
+        var places: [String] = []
     }
 
     static let questionLength = 90
@@ -35,6 +37,7 @@ enum KapitsaChatOutline {
                 entries[entries.count - 1].replyID = message.id
                 entries[entries.count - 1].headings = headings(in: message.text)
                 entries[entries.count - 1].topics = message.needsTopics ? nil : message.topics ?? []
+                entries[entries.count - 1].places = message.places ?? []
             }
         }
         return entries

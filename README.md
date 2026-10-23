@@ -55,11 +55,13 @@ A native macOS app for starting, stopping and monitoring a local
     - **Save the summary as a separate file:** `<name>.md` and `<name> – Summary.md` side by
       side, the summary linking to the full file.
     - **Exclude thinking**, for a shorter full conversation.
-    - **Add topics as tags:** the chat's topics as `tags` in front matter at the top of the
-      file, for note apps such as Obsidian; spaces become hyphens.
+    - **Add topics as tags:** places and topics as `tags` in front matter at the top of the
+      file, nested as `Places/…` and `Theme/topic` for note apps such as Obsidian; spaces
+      become hyphens.
 
-    Replies with topics get a `Topics:` line, and a **Topics** index at the end links each topic
-    to its questions (in the full conversation's file, for a summary saved separately).
+    Replies get `Places:` and `Topics:` lines, and a **Topics** index at the end, grouped into
+    places and themes, links each to its questions (in the full conversation's file, for a
+    summary saved separately).
   - **Delete a turn:** the trash button under a reply removes it and its question, after asking,
     including from what the model sees in later replies.
   - **Auto-scroll:** follows the reply as it streams; turn it off to read earlier turns while
@@ -69,14 +71,16 @@ A native macOS app for starting, stopping and monitoring a local
     - **Outline** lists each question, numbered, with the headings of its reply; click one to
       jump to it. Fold a question's headings with its chevron, or all of them at once; folds
       are kept with the chat.
-    - **Topics** is an index of the key concepts the replies covered, alphabetically, each with
-      the questions where it came up. After each reply the model names its 3 to 6 concepts in
-      a short background request with thinking off; **Find topics** does the same for earlier
-      replies, one at a time. Each request lists the chat's earlier topics, and a final request
-      merges names that mean the same concept, so a topic gathers every question about it;
-      **Redo all** re-indexes a chat. Filter the list to find a concept.
+    - **Topics** is an index of the chat: **Places** it discussed, then **Themes**, each opening
+      to its topics, and each place or topic to the questions where it came up, the most
+      discussed first. After each reply the model names its places and 2 to 4 broad topics,
+      reusing the chat's earlier names, then files new topics into the chat's themes (at most
+      about 10), in two short background requests with thinking off. **Find topics** does the
+      same for earlier replies; **Redo all** re-indexes the chat and regroups its themes. Filter
+      the list to find a place or topic.
   - The conversation is kept between launches, in
-    `~/Library/Application Support/KapitsaLauncher/chat.json`.
+    `~/Library/Application Support/KapitsaLauncher/chat.json`, with its folds, places, topics
+    and themes.
 - **Settings:** model (best for this Mac, downloaded, catalog or custom), host, port, API
   model name, context, slots, speculative drafter, memory budget, prefill chunk, SSD prefix
   cache, model switching, and an optional API key stored in the macOS Keychain.

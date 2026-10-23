@@ -1,74 +1,142 @@
 import Foundation
 
-/// The key concepts of one question and reply, found by the running model with thinking off,
-/// and the index built from them: each concept with the questions where it came up.
+/// The places and topics of one question and reply, found by the running model with thinking
+/// off; the themes that group a chat's topics; and the index built from them, with each place,
+/// theme and topic leading to the questions where it came up.
 enum KapitsaChatTopics {
     static let instructions = """
-    List the key concepts this exchange between a person and an AI assistant is about, so the \
-    person can find it again later. Give 3 to 6 short noun phrases of 1 to 4 words, most \
-    important first, such as places, ideas, methods or decisions. Write them as you would in \
-    a list of headings, for example: Sensitive skin, San Diego, EU residency, Cost of living. \
-    Write one per line, with no numbering, bullets or other text.
+    List what this exchange between a person and an AI assistant is about, so the person can \
+    find it again later. First, up to 4 specific places it discusses, such as cities, islands, \
+    regions or countries, each on its own line starting with "Place: ". Then 2 to 4 topics: the \
+    broad subjects it covers, such as a need, a decision, a method or a practical matter, named \
+    so they could apply to other questions too (for example: Residency permits, Cost of living, \
+    Schooling), not a summary of this one answer. Write names as headings, capitalising the \
+    first word and proper names. One per line, with no numbering, bullets or other text.
     """
 
-    static let mergeInstructions = """
-    These are topic names from one conversation. Some may name the same concept in different \
-    words. Group only names that mean the same thing, not names that are merely related. For \
-    each group, write one line: the clearest name, then " = ", then the other names in the group \
-    separated by " | ". Write nothing for names without a match, and no other text.
-    """
-
-    /// Added when the chat already has topics, so the same concept keeps one name.
+    /// Added when the chat already has names, so the same place or topic keeps one name.
     static func reuseInstructions(_ existing: [String]) -> String {
         "\n\nNames already used for earlier parts of this conversation:\n" + existing.joined(separator: "\n")
-            + "\nList only what this exchange itself is about, starting with what is new in it. If one of "
-            + "its concepts is the same as a name above, write that exact name instead of a new wording; "
-            + "don't list a name above just because it appears there."
+            + "\nList only what this exchange itself is about. If one of its places or topics is the "
+            + "same as a name above, write that exact name instead of a new wording; don't list a name "
+            + "above just because it appears there."
     }
 
-    /// At most this many earlier topics are sent, the most recent first, to keep the request short.
-    static let maximumExisting = 80
+    static let groupInstructions = """
+    These are topics from one conversation. Group them into at most 10 themes, each a short, \
+    broad name of 1 to 3 words, for example: Climate, Residency, Housing and costs. Put every \
+    topic in exactly one theme. Write one line per theme: the theme's name, then ": ", then its \
+    topics separated by " | ". No other text.
+    """
 
-    static let maximumCount = 6
+    /// Added when the chat already has themes, so new topics join them instead of reshuffling.
+    static func existingThemesInstructions(_ themes: [String]) -> String {
+        "\n\nThe conversation already has these themes:\n" + themes.joined(separator: "\n")
+            + "\nPut each topic in one of these themes, or in a new theme only if none fits."
+    }
+
+    static let placePrefix = "place:"
+    static let maximumPlaces = 4
+    static let maximumTopics = 4
     static let maximumLength = 40
-    /// Enough of a long reply for its main concepts, while keeping the request quick.
+    /// At most this many earlier names are sent, the most recent first, to keep the request short.
+    static let maximumExisting = 80
+    /// Enough of a long reply for its main subjects, while keeping the request quick.
     static let textBudget = 6_000
 
+    struct Found: Equatable {
+        var places: [String] = []
+        var topics: [String] = []
+    }
+
     static func find(question: KapitsaChatMessage?, reply: KapitsaChatMessage, existing: [String] = [],
-                     connection: KapitsaChatConnection, send: KapitsaChatSummary.Send) async throws -> [String] {
+                     connection: KapitsaChatConnection, send: KapitsaChatSummary.Send) async throws -> Found {
         let existing = Array(existing.prefix(maximumExisting))
         let instructions = existing.isEmpty ? Self.instructions : Self.instructions + reuseInstructions(existing)
         let exchange = KapitsaChatSummary.transcript([question, reply].compactMap { $0 })
         let text = KapitsaChatSummary.sections(exchange, budget: textBudget).first ?? ""
+        return parse(try await ask(instructions, text, connection: connection, send: send))
+    }
+
+    /// Asks which theme each topic belongs to. With `existingThemes`, topics join those where
+    /// they fit. Returns each topic's key with its theme.
+    static func themes(for topics: [String], existingThemes: [String] = [], connection: KapitsaChatConnection,
+                       send: KapitsaChatSummary.Send) async throws -> [String: String] {
+        guard !topics.isEmpty else { return [:] }
+        let instructions = existingThemes.isEmpty
+            ? groupInstructions : groupInstructions + existingThemesInstructions(existingThemes)
+        return parseThemes(try await ask(instructions, topics.joined(separator: "\n"), connection: connection, send: send),
+                           topics: topics)
+    }
+
+    private static func ask(_ instructions: String, _ text: String, connection: KapitsaChatConnection,
+                            send: KapitsaChatSummary.Send) async throws -> String {
         var request = try KapitsaChatRequest.urlRequest(
             connection: connection,
             body: KapitsaChatSummary.requestBody(instructions: instructions, text: text, model: connection.model))
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        return parse(try KapitsaChatSummary.replyText(from: try await send(request)))
+        return try KapitsaChatSummary.replyText(from: try await send(request))
     }
 
-    /// One concept per line, without the bullets, numbers or quotes a model may add anyway.
-    static func parse(_ text: String) -> [String] {
+    /// One name per line, places marked "Place:", without the bullets, numbers or quotes a model
+    /// may add anyway.
+    static func parse(_ text: String) -> Found {
         var seen = Set<String>()
-        var topics: [String] = []
+        var found = Found()
         for line in text.split(whereSeparator: \.isNewline) {
-            // Bullets and list numbers ("-", "•", "1.", "2)"), but not a leading number such as "3BR".
-            var topic = line.trimmingCharacters(in: .whitespaces)
-                .replacingOccurrences(of: #"^(?:[-*•·]+|\d+[.)])\s*"#, with: "", options: .regularExpression)
-            topic = topic.trimmingCharacters(in: CharacterSet(charactersIn: " \"'`*_.,;:"))
-            guard !topic.isEmpty, topic.count <= maximumLength, seen.insert(key(topic)).inserted else { continue }
-            // Models often answer in lower case; topics read as headings.
-            if let first = topic.first, first.isLowercase { topic = first.uppercased() + topic.dropFirst() }
-            topics.append(topic)
-            if topics.count == maximumCount { break }
+            var name = clean(String(line))
+            let isPlace = name.lowercased().hasPrefix(placePrefix)
+            if isPlace { name = clean(String(name.dropFirst(placePrefix.count))) }
+            guard !name.isEmpty, name.count <= maximumLength, seen.insert(key(name)).inserted else { continue }
+            // Models often answer in lower case; names read as headings.
+            if let first = name.first, first.isLowercase { name = first.uppercased() + name.dropFirst() }
+            if isPlace {
+                if found.places.count < maximumPlaces { found.places.append(name) }
+            } else if found.topics.count < maximumTopics {
+                found.topics.append(name)
+            }
         }
-        return topics
+        return found
     }
 
-    /// Topics that differ only in case or accents are the same entry.
-    static func key(_ topic: String) -> String {
-        topic.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+    /// Lines of "Theme: topic | topic", keeping only topics that were asked about, so the model
+    /// can't invent them. A topic named twice stays in its first theme.
+    static func parseThemes(_ text: String, topics: [String]) -> [String: String] {
+        let known = Set(topics.map(key))
+        var themes: [String: String] = [:]
+        for line in text.split(whereSeparator: \.isNewline) {
+            let parts = line.split(separator: ":", maxSplits: 1).map { clean(String($0)) }
+            guard parts.count == 2, !parts[0].isEmpty, parts[0].count <= maximumLength else { continue }
+            for topic in parts[1].split(separator: "|").map({ key(clean(String($0))) })
+            where known.contains(topic) && themes[topic] == nil {
+                themes[topic] = parts[0]
+            }
+        }
+        return themes
     }
+
+    /// Bullets and list numbers ("-", "•", "1.", "2)"), but not a leading number such as "3BR",
+    /// and stray quotes or emphasis.
+    private static func clean(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: #"^(?:[-*•·]+|\d+[.)])\s*"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: " \"'`*_.,;:"))
+    }
+
+    /// Names that differ only in case or accents are the same entry.
+    static func key(_ name: String) -> String {
+        name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+    }
+
+    /// The chat's places and topics so far, newest first, one spelling each, for the model to reuse.
+    static func existing(in messages: [KapitsaChatMessage], excluding replyID: UUID) -> [String] {
+        var seen = Set<String>()
+        return messages.reversed().filter { $0.id != replyID }
+            .flatMap { ($0.places ?? []).map { "Place: " + $0 } + ($0.topics ?? []) }
+            .filter { seen.insert(key($0)).inserted }
+    }
+
+    // MARK: - Index
 
     struct Mention: Equatable, Identifiable {
         /// The question, which the index scrolls to.
@@ -84,77 +152,60 @@ enum KapitsaChatTopics {
         var mentions: [Mention]
     }
 
-    /// Asks the model which of a chat's topics name the same concept. Returns, for each name
-    /// to replace, the name to use instead.
-    static func merges(for topics: [String], connection: KapitsaChatConnection,
-                       send: KapitsaChatSummary.Send) async throws -> [String: String] {
-        guard topics.count > 1 else { return [:] }
-        var request = try KapitsaChatRequest.urlRequest(
-            connection: connection,
-            body: KapitsaChatSummary.requestBody(instructions: mergeInstructions,
-                                                 text: topics.joined(separator: "\n"), model: connection.model))
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        return parseMerges(try KapitsaChatSummary.replyText(from: try await send(request)), known: topics)
+    struct Theme: Equatable, Identifiable {
+        var id: String { name }
+        let name: String
+        let topics: [Topic]
+        /// Every question that mentions any of its topics, in order.
+        let mentions: [Mention]
     }
 
-    /// Lines of "Name = other | other", keeping only names that were in the list, so the model
-    /// can't invent topics, and only names that share a word, so related but different
-    /// concepts ("Budget constraints", "Czech EU residency") stay apart. Merges run after every
-    /// reply, so a loose one would compound. Keys are folded with `key(_:)`.
-    static func parseMerges(_ text: String, known: [String]) -> [String: String] {
-        let spellings = Dictionary(known.map { (key($0), $0) }, uniquingKeysWith: { first, _ in first })
-        var merges: [String: String] = [:]
-        for line in text.split(whereSeparator: \.isNewline) {
-            let parts = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-            guard parts.count == 2, let target = spellings[key(clean(parts[0]))] else { continue }
-            for other in parts[1].split(separator: "|").map({ key(clean(String($0))) })
-            where other != key(target) && merges[key(target)] == nil
-                && spellings[other].map({ sharesWord($0, target) }) == true {
-                merges[other] = target
-            }
+    struct Index: Equatable {
+        var places: [Topic] = []
+        var themes: [Theme] = []
+        /// Every place and topic, for filtering.
+        var all: [Topic] { places + themes.flatMap(\.topics) }
+        var isEmpty: Bool { places.isEmpty && themes.isEmpty }
+    }
+
+    /// Theme name for topics the model hasn't grouped yet.
+    static let otherTheme = "Other"
+
+    /// Places, then themes with their topics; the most discussed first throughout.
+    static func index(_ entries: [KapitsaChatOutline.Entry], themes: [String: String]) -> Index {
+        let places = collect(entries) { $0.places }
+        let topics = collect(entries) { $0.topics ?? [] }
+        var groups: [String: [Topic]] = [:]
+        for topic in topics { groups[themes[topic.id] ?? otherTheme, default: []].append(topic) }
+        let grouped = groups.map { name, topics -> Theme in
+            var seen = Set<UUID>()
+            let mentions = topics.flatMap(\.mentions).filter { seen.insert($0.id).inserted }
+            return Theme(name: name, topics: topics, mentions: mentions.sorted { $0.number < $1.number })
         }
-        return merges
+        return Index(places: places, themes: grouped.sorted { a, b in
+            // Other last; otherwise by how many questions a theme covers, then by name.
+            if (a.name == otherTheme) != (b.name == otherTheme) { return b.name == otherTheme }
+            if a.mentions.count != b.mentions.count { return a.mentions.count > b.mentions.count }
+            return a.name.localizedStandardCompare(b.name) == .orderedAscending
+        })
     }
 
-    /// Replaces merged names in a reply's topics, dropping any that become repeats.
-    static func applying(_ merges: [String: String], to topics: [String]) -> [String] {
-        var seen = Set<String>()
-        return topics.map { merges[key($0)] ?? $0 }.filter { seen.insert(key($0)).inserted }
-    }
-
-    /// Whether two names have a word of three or more letters in common, ignoring case,
-    /// accents and a plural "s".
-    static func sharesWord(_ a: String, _ b: String) -> Bool {
-        func words(_ name: String) -> Set<String> {
-            Set(key(name).components(separatedBy: CharacterSet.alphanumerics.inverted)
-                .filter { $0.count >= 3 }
-                .map { $0.hasSuffix("s") && $0.count > 3 ? String($0.dropLast()) : $0 })
-        }
-        return !words(a).isDisjoint(with: words(b))
-    }
-
-    private static func clean(_ name: String) -> String {
-        name.trimmingCharacters(in: CharacterSet(charactersIn: " \"'`*_-•"))
-    }
-
-    /// The chat's topics so far, newest first, one spelling each, for the model to reuse.
-    static func existing(in messages: [KapitsaChatMessage], excluding replyID: UUID) -> [String] {
-        var seen = Set<String>()
-        return messages.reversed().filter { $0.id != replyID }.flatMap { $0.topics ?? [] }
-            .filter { seen.insert(key($0)).inserted }
-    }
-
-    /// Every topic, alphabetically, with the questions whose replies mention it.
-    static func index(_ entries: [KapitsaChatOutline.Entry]) -> [Topic] {
+    private static func collect(_ entries: [KapitsaChatOutline.Entry],
+                                _ names: (KapitsaChatOutline.Entry) -> [String]) -> [Topic] {
         var topics: [String: Topic] = [:]
         for entry in entries {
-            for name in entry.topics ?? [] {
+            for name in names(entry) {
                 let id = key(name)
-                let mention = Mention(id: entry.id, number: entry.number, question: entry.question)
                 if topics[id] == nil { topics[id] = Topic(id: id, name: name, mentions: []) }
-                if topics[id]?.mentions.last?.id != entry.id { topics[id]?.mentions.append(mention) }
+                if topics[id]?.mentions.last?.id != entry.id {
+                    topics[id]?.mentions.append(Mention(id: entry.id, number: entry.number, question: entry.question))
+                }
             }
         }
-        return topics.values.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        return topics.values.sorted {
+            $0.mentions.count != $1.mentions.count
+                ? $0.mentions.count > $1.mentions.count
+                : $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
     }
 }

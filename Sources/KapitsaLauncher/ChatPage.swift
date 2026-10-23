@@ -140,6 +140,7 @@ struct ChatPage: View {
                     ChatOutlineView(
                         messages: chat.messages, contextTokens: controller.engine.contextTokens,
                         canFindTopics: controller.chatConnection != nil, topicProgress: chat.topicProgress,
+                        topicThemes: chat.topicThemes,
                         onSelect: { proxy.scrollTo($0, anchor: .top) },
                         onCollapse: { chat.setOutlineCollapsed($0, questions: $1) },
                         onFindTopics: { if let connection = controller.chatConnection { chat.findMissingTopics(connection: connection) } },
@@ -239,7 +240,7 @@ struct ChatPage: View {
     private func write(_ messages: [KapitsaChatMessage], to url: URL, options: KapitsaChatExport.Options,
                        summary: KapitsaChatSummary?) {
         do {
-            try KapitsaChatExport.write(messages, to: url, options: options, summary: summary)
+            try KapitsaChatExport.write(messages, to: url, options: options, summary: summary, topicThemes: chat.topicThemes)
         } catch {
             exportError = "Couldn't save the export: \(error.localizedDescription)"
         }
@@ -319,6 +320,7 @@ private struct ChatOutlineView: View, Equatable {
     /// False when Kapitsa isn't running, so there's no model to find topics.
     let canFindTopics: Bool
     let topicProgress: KapitsaChatController.TopicProgress?
+    let topicThemes: [String: String]
     let onSelect: (UUID) -> Void
     let onCollapse: (Bool, Set<UUID>) -> Void
     let onFindTopics: () -> Void
@@ -329,6 +331,7 @@ private struct ChatOutlineView: View, Equatable {
     static func == (lhs: ChatOutlineView, rhs: ChatOutlineView) -> Bool {
         lhs.messages == rhs.messages && lhs.contextTokens == rhs.contextTokens
             && lhs.canFindTopics == rhs.canFindTopics && lhs.topicProgress == rhs.topicProgress
+            && lhs.topicThemes == rhs.topicThemes
     }
 
     var body: some View {
@@ -348,7 +351,7 @@ private struct ChatOutlineView: View, Equatable {
             switch mode {
             case .outline: outline(entries)
             case .topics:
-                ChatTopicsView(entries: entries, canFindTopics: canFindTopics, progress: topicProgress,
+                ChatTopicsView(entries: entries, themes: topicThemes, canFindTopics: canFindTopics, progress: topicProgress,
                                onSelect: onSelect, onFind: onFindTopics, onRedo: onRedoTopics,
                                onStop: onStopFindingTopics)
             }
@@ -385,10 +388,12 @@ private struct ChatOutlineView: View, Equatable {
     }
 }
 
-/// The topic index: every concept the replies covered, alphabetically, filterable, each
-/// opening to the questions where it came up.
+/// The topic index: the places the replies discussed, then themes, each opening to its topics,
+/// and each place or topic to the questions where it came up; the most discussed first. A
+/// filter flattens it to the matching places and topics.
 private struct ChatTopicsView: View {
     let entries: [KapitsaChatOutline.Entry]
+    let themes: [String: String]
     let canFindTopics: Bool
     let progress: KapitsaChatController.TopicProgress?
     let onSelect: (UUID) -> Void
@@ -400,24 +405,20 @@ private struct ChatTopicsView: View {
     @State private var expanded: Set<String> = []
 
     var body: some View {
-        let topics = KapitsaChatTopics.index(entries)
-        let shown = filter.isEmpty ? topics : topics.filter {
-            $0.name.localizedCaseInsensitiveContains(filter)
-        }
+        let index = KapitsaChatTopics.index(entries, themes: themes)
         let missing = entries.filter { $0.replyID != nil && $0.topics == nil }.count
         VStack(alignment: .leading, spacing: 6) {
-            TextField("Filter topics", text: $filter)
+            TextField("Filter places and topics", text: $filter)
                 .textFieldStyle(.roundedBorder).controlSize(.small)
                 .padding(.horizontal, 12)
             HStack {
-                Text("\(topics.count) \(topics.count == 1 ? "topic" : "topics")")
-                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text(counts(index)).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 Spacer()
-                if !topics.isEmpty && progress == nil {
+                if !index.isEmpty && progress == nil {
                     Button("Redo all") { confirmRedo = true }
                         .buttonStyle(.plain).font(.caption).foregroundStyle(KapitsaTheme.accent)
                         .disabled(!canFindTopics)
-                        .help(canFindTopics ? "Find every reply's topics again, so the same concept shares one name."
+                        .help(canFindTopics ? "Find every reply's places and topics again, and regroup the themes."
                                             : "Start Kapitsa to find topics.")
                 }
             }
@@ -425,7 +426,7 @@ private struct ChatTopicsView: View {
             .confirmationDialog("Find all topics again?", isPresented: $confirmRedo) {
                 Button("Redo all", action: onRedo)
             } message: {
-                Text("Each reply's topics are replaced, one reply at a time, reusing names across the chat.")
+                Text("Each reply's places and topics are replaced, one reply at a time, and the themes are regrouped.")
             }
             if let progress {
                 HStack(spacing: 6) {
@@ -442,16 +443,31 @@ private struct ChatTopicsView: View {
                     Button("Find topics", action: onFind)
                         .buttonStyle(.plain).font(.caption.weight(.medium)).foregroundStyle(KapitsaTheme.accent)
                         .disabled(!canFindTopics)
-                        .help(canFindTopics ? "Ask the model for the topics of those replies, one at a time, with thinking off."
+                        .help(canFindTopics ? "Ask the model for the places and topics of those replies, one at a time, with thinking off."
                                             : "Start Kapitsa to find topics.")
                 }
                 .padding(.horizontal, 12)
             }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 1) {
-                    ForEach(shown) { topic in
-                        ChatTopicRow(topic: topic, isExpanded: expanded.contains(topic.id) || !filter.isEmpty,
-                                     onToggle: { toggle(topic.id) }, onSelect: onSelect)
+                    if filter.isEmpty {
+                        if !index.places.isEmpty {
+                            section("Places")
+                            ForEach(index.places) { place in
+                                ChatTopicRow(topic: place, symbol: "mappin.and.ellipse", isExpanded: isExpanded("place:" + place.id),
+                                             onToggle: { toggle("place:" + place.id) }, onSelect: onSelect)
+                            }
+                        }
+                        if !index.themes.isEmpty {
+                            section("Themes")
+                            ForEach(index.themes) { theme in
+                                ChatThemeRow(theme: theme, expanded: $expanded, onSelect: onSelect)
+                            }
+                        }
+                    } else {
+                        ForEach(index.all.filter { $0.name.localizedCaseInsensitiveContains(filter) }) { topic in
+                            ChatTopicRow(topic: topic, isExpanded: true, onToggle: {}, onSelect: onSelect)
+                        }
                     }
                 }
                 .padding(.horizontal, 6).padding(.bottom, 10)
@@ -459,13 +475,75 @@ private struct ChatTopicsView: View {
         }
     }
 
+    private func counts(_ index: KapitsaChatTopics.Index) -> String {
+        let topics = index.themes.reduce(0) { $0 + $1.topics.count }
+        var parts: [String] = []
+        if !index.places.isEmpty { parts.append("\(index.places.count) \(index.places.count == 1 ? "place" : "places")") }
+        parts.append("\(topics) \(topics == 1 ? "topic" : "topics")")
+        return parts.joined(separator: " · ")
+    }
+
+    private func section(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
+            .padding(.horizontal, 6).padding(.top, 8).padding(.bottom, 2)
+    }
+
+    private func isExpanded(_ id: String) -> Bool { expanded.contains(id) }
+
     private func toggle(_ id: String) {
         if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
     }
 }
 
+/// A theme: its name and how many questions it covers, opening to its topics.
+private struct ChatThemeRow: View {
+    let theme: KapitsaChatTopics.Theme
+    @Binding var expanded: Set<String>
+    let onSelect: (UUID) -> Void
+    @State private var hovered = false
+
+    private var key: String { "theme:" + theme.name }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Button {
+                if expanded.contains(key) { expanded.remove(key) } else { expanded.insert(key) }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(expanded.contains(key) ? 90 : 0))
+                        .frame(width: 12)
+                    Text(theme.name).font(.callout.weight(.semibold)).lineLimit(1)
+                    Spacer(minLength: 4)
+                    Text("\(theme.mentions.count)").font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 6).padding(.vertical, 4)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(hovered ? KapitsaTheme.inset : .clear, in: RoundedRectangle(cornerRadius: 6))
+            .onHover { hovered = $0 }
+            .accessibilityLabel("\(theme.name), \(theme.topics.count) topics, \(theme.mentions.count) questions")
+            if expanded.contains(key) {
+                ForEach(theme.topics) { topic in
+                    let id = "topic:" + topic.id
+                    ChatTopicRow(topic: topic, isExpanded: expanded.contains(id),
+                                 onToggle: { if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) } },
+                                 onSelect: onSelect)
+                        .padding(.leading, 14)
+                }
+            }
+        }
+    }
+}
+
+/// A place or topic: its name and how many questions mention it, opening to those questions.
 private struct ChatTopicRow: View {
     let topic: KapitsaChatTopics.Topic
+    var symbol: String?
     let isExpanded: Bool
     let onToggle: () -> Void
     let onSelect: (UUID) -> Void
@@ -479,6 +557,9 @@ private struct ChatTopicRow: View {
                         .font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                         .frame(width: 12)
+                    if let symbol {
+                        Image(systemName: symbol).font(.caption).foregroundStyle(KapitsaTheme.accent)
+                    }
                     Text(topic.name).font(.callout).lineLimit(1)
                     Spacer(minLength: 4)
                     Text("\(topic.mentions.count)").font(.caption).monospacedDigit().foregroundStyle(.secondary)

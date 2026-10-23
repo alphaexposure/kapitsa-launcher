@@ -4,8 +4,8 @@ import Foundation
 /// are written as they are. Reasoning goes in a `<details>` block, which folds up in most
 /// Markdown viewers, unless `includeThinking` is off for a shorter file. A model-written summary
 /// can go at the top, or stand alone with a link to the full conversation's file. Replies
-/// with topics get a topics line, and a topic index at the end links each topic to its
-/// questions; topics can also go in front matter as tags. Images are saved as files beside
+/// get places and topics lines, and an index at the end, grouped into places and themes,
+/// links each to its questions; they can also go in front matter as tags. Images are saved as files beside
 /// the Markdown; documents are listed by name.
 struct KapitsaChatExport: Equatable {
     struct Image: Equatable {
@@ -35,18 +35,20 @@ struct KapitsaChatExport: Equatable {
     ///   - includeConversation: false for a summary on its own.
     ///   - fullConversationFileName: the file holding the full conversation, linked from a
     ///     summary saved on its own.
-    ///   - includeTopicTags: the topics as tags in front matter.
+    ///   - includeTopicTags: places and topics as tags in front matter.
+    ///   - topicThemes: which theme each topic belongs to, by topic key.
     init(messages: [KapitsaChatMessage], includeThinking: Bool = true, summary: KapitsaChatSummary? = nil,
          includeConversation: Bool = true, fullConversationFileName: String? = nil, includeTopicTags: Bool = false,
-         exportedAt: Date = Date(), imagesFolderName: String? = nil, timeZone: TimeZone = .current) {
+         topicThemes: [String: String] = [:], exportedAt: Date = Date(), imagesFolderName: String? = nil,
+         timeZone: TimeZone = .current) {
         let fileName = Self.fileName(for: messages)
         let folder = imagesFolderName ?? Self.imagesFolderName(forMarkdownNamed: fileName)
         var images: [Image] = []
         let date = Self.format(exportedAt, timeZone: timeZone)
-        let topics = KapitsaChatTopics.index(KapitsaChatOutline.entries(from: messages))
+        let topics = KapitsaChatTopics.index(KapitsaChatOutline.entries(from: messages), themes: topicThemes)
         var lines: [String] = []
         if includeTopicTags && !topics.isEmpty {
-            lines += ["---", "tags:"] + topics.map { "  - \(Self.tag($0.name))" } + ["---", ""]
+            lines += ["---", "tags:"] + Self.tags(topics).map { "  - \($0)" } + ["---", ""]
         }
         lines += ["# \(Self.title(for: messages))", "", "_Exported from Kapitsa Launcher on \(date)_", ""]
         var question = 0
@@ -102,6 +104,9 @@ struct KapitsaChatExport: Equatable {
                               message.reasoning.trimmingCharacters(in: .whitespacesAndNewlines), "", "</details>", ""]
                 }
                 if !message.text.isEmpty { lines += [message.text, ""] }
+                if let names = message.places, !names.isEmpty {
+                    lines += ["_Places: " + names.joined(separator: " · ") + "_", ""]
+                }
                 if let names = message.topics, !names.isEmpty {
                     lines += ["_Topics: " + names.joined(separator: " · ") + "_", ""]
                 }
@@ -115,15 +120,23 @@ struct KapitsaChatExport: Equatable {
             // Links go to this file's questions, to the full conversation's file beside a summary,
             // or nowhere when there is no conversation to link to.
             let target = includeConversation ? "" : fullConversationFileName.map(Self.encodedPath)
-            lines += ["---", "", "## Topics", ""]
-            for topic in topics {
+            func entry(_ topic: KapitsaChatTopics.Topic) -> String {
                 let questions = topic.mentions.map { mention in
                     target.map { "[\(mention.number)](\($0)#\(Self.anchor(mention.number)))" } ?? "\(mention.number)"
                 }
                 let label = topic.mentions.count == 1 ? "Question" : "Questions"
-                lines.append("- **\(topic.name)**: \(label) " + questions.joined(separator: ", "))
+                return "- **\(topic.name)**: \(label) " + questions.joined(separator: ", ")
             }
-            lines.append("")
+            lines += ["---", "", "## Topics", ""]
+            // Headings only when there is more than one group; topics never grouped are a plain list.
+            let ungroupedOnly = topics.places.isEmpty && topics.themes.map(\.name) == [KapitsaChatTopics.otherTheme]
+            if !topics.places.isEmpty {
+                lines += ["### Places", ""] + topics.places.map(entry) + [""]
+            }
+            for theme in topics.themes {
+                if !ungroupedOnly { lines += ["### \(theme.name)", ""] }
+                lines += theme.topics.map(entry) + [""]
+            }
         }
 
         markdown = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines) + "\n"
@@ -152,7 +165,7 @@ struct KapitsaChatExport: Equatable {
     /// summary beside it. Returns the files written.
     @discardableResult
     static func write(_ messages: [KapitsaChatMessage], to url: URL, options: Options,
-                      summary: KapitsaChatSummary?, exportedAt: Date = Date(),
+                      summary: KapitsaChatSummary?, topicThemes: [String: String] = [:], exportedAt: Date = Date(),
                       timeZone: TimeZone = .current) throws -> [URL] {
         let fileName = url.lastPathComponent
         let images = imagesFolderName(forMarkdownNamed: fileName)
@@ -160,18 +173,19 @@ struct KapitsaChatExport: Equatable {
         guard options.savesSummarySeparately, let summary else {
             try KapitsaChatExport(messages: messages, includeThinking: options.includeThinking, summary: summary,
                                   includeConversation: options.includeConversation || summary == nil,
-                                  includeTopicTags: options.includeTopicTags, exportedAt: exportedAt, imagesFolderName: images, timeZone: timeZone)
+                                  includeTopicTags: options.includeTopicTags, topicThemes: topicThemes,
+                                  exportedAt: exportedAt, imagesFolderName: images, timeZone: timeZone)
                 .write(to: url)
             return [url]
         }
         try KapitsaChatExport(messages: messages, includeThinking: options.includeThinking,
-                              includeTopicTags: options.includeTopicTags,
+                              includeTopicTags: options.includeTopicTags, topicThemes: topicThemes,
                               exportedAt: exportedAt, imagesFolderName: images, timeZone: timeZone)
             .write(to: url)
         let summaryURL = url.deletingLastPathComponent().appendingPathComponent(summaryFileName(forMarkdownNamed: fileName))
         try KapitsaChatExport(messages: messages, summary: summary, includeConversation: false,
                               fullConversationFileName: fileName, includeTopicTags: options.includeTopicTags,
-                              exportedAt: exportedAt, timeZone: timeZone)
+                              topicThemes: topicThemes, exportedAt: exportedAt, timeZone: timeZone)
             .write(to: summaryURL)
         return [url, summaryURL]
     }
@@ -240,6 +254,14 @@ struct KapitsaChatExport: Equatable {
 
     /// The anchor before a question's heading, which the topic index links to.
     static func anchor(_ question: Int) -> String { "question-\(question)" }
+
+    /// Places as "Places/…" and topics under their theme ("Residency/EU-family-permit"); note
+    /// apps such as Obsidian show these as nested tags.
+    static func tags(_ index: KapitsaChatTopics.Index) -> [String] {
+        index.places.map { "Places/" + tag($0.name) } + index.themes.flatMap { theme in
+            theme.topics.map { theme.name == KapitsaChatTopics.otherTheme ? tag($0.name) : tag(theme.name) + "/" + tag($0.name) }
+        }
+    }
 
     /// A topic as a tag: tags can't hold spaces in most note apps, so words join with hyphens.
     static func tag(_ topic: String) -> String {

@@ -88,8 +88,8 @@ final class KapitsaChatExportTests: XCTestCase {
         XCTAssertTrue(markdown.hasSuffix("""
         ## Topics
 
-        - **Cost of living**: Question [2](#question-2)
         - **Funchal Madeira**: Questions [1](#question-1), [2](#question-2)
+        - **Cost of living**: Question [2](#question-2)
         - **Sensitive skin**: Question [1](#question-1)
 
         """))
@@ -101,14 +101,52 @@ final class KapitsaChatExportTests: XCTestCase {
         XCTAssertTrue(markdown.hasPrefix("""
         ---
         tags:
-          - Cost-of-living
           - Funchal-Madeira
+          - Cost-of-living
           - Sensitive-skin
         ---
 
         # Warm places?
         """))
         XCTAssertEqual(KapitsaChatExport.tag("3BR rentals (Lisbon)"), "3BR-rentals-Lisbon")
+    }
+
+    func testPlacesAndThemesGroupTheIndexAndNestTheTags() {
+        var messages = topicConversation()
+        messages[1].places = ["Funchal"]
+        let themes = ["funchal madeira": "Places to live", "cost of living": "Costs"]
+        let markdown = KapitsaChatExport(messages: messages, includeTopicTags: true, topicThemes: themes,
+                                         exportedAt: sent, timeZone: utc).markdown
+        XCTAssertTrue(markdown.contains("Madeira.\n\n_Places: Funchal_\n\n_Topics: Funchal Madeira · Sensitive skin_"))
+        XCTAssertTrue(markdown.hasPrefix("""
+        ---
+        tags:
+          - Places/Funchal
+          - Places-to-live/Funchal-Madeira
+          - Costs/Cost-of-living
+          - Sensitive-skin
+        ---
+        """))
+        XCTAssertTrue(markdown.hasSuffix("""
+        ## Topics
+
+        ### Places
+
+        - **Funchal**: Question [1](#question-1)
+
+        ### Places to live
+
+        - **Funchal Madeira**: Questions [1](#question-1), [2](#question-2)
+
+        ### Costs
+
+        - **Cost of living**: Question [2](#question-2)
+
+        ### Other
+
+        - **Sensitive skin**: Question [1](#question-1)
+
+        """))
     }
 
     func testASeparateSummaryLinksTopicsToTheFullConversation() {
