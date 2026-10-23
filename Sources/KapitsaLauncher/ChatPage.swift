@@ -388,8 +388,9 @@ private struct ChatOutlineView: View, Equatable {
     }
 }
 
-/// The topic index: the places the replies discussed, then themes, each opening to its topics,
-/// and each place or topic to the questions where it came up; the most discussed first. A
+/// The topic index: the places the replies discussed, then themes, each opening to its topics
+/// (a theme of one topic shows just the topic), and each place or topic to the questions
+/// where it came up; the most discussed first. A
 /// filter flattens it to the matching places and topics.
 private struct ChatTopicsView: View {
     let entries: [KapitsaChatOutline.Entry]
@@ -459,9 +460,15 @@ private struct ChatTopicsView: View {
                             }
                         }
                         if !index.themes.isEmpty {
-                            section("Themes")
+                            section("Topics")
                             ForEach(index.themes) { theme in
-                                ChatThemeRow(theme: theme, expanded: $expanded, onSelect: onSelect)
+                                // A theme of one topic would only add a click; show the topic itself.
+                                if theme.topics.count == 1, let topic = theme.topics.first {
+                                    ChatTopicRow(topic: topic, isExpanded: isExpanded("topic:" + topic.id),
+                                                 onToggle: { toggle("topic:" + topic.id) }, onSelect: onSelect)
+                                } else {
+                                    ChatThemeRow(theme: theme, expanded: $expanded, onSelect: onSelect)
+                                }
                             }
                         }
                     } else {
