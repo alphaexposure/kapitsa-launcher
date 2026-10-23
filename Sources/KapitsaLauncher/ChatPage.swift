@@ -14,7 +14,6 @@ struct ChatPage: View {
     @State private var summaryTask: Task<Void, Never>?
     @AppStorage("chatOutlineShown") private var outlineShown = true
     @AppStorage("chatAutoScroll") private var autoScroll = true
-    @FocusState private var composerFocused: Bool
     private let endID = "chat-end"
 
     var body: some View {
@@ -167,43 +166,9 @@ struct ChatPage: View {
             if let error = chat.attachmentError {
                 Notice(error, symbol: "exclamationmark.triangle", isError: true)
             }
-            HStack(alignment: .bottom, spacing: 10) {
-                Button(action: chooseFiles) {
-                    Image(systemName: "paperclip").font(.system(size: 15, weight: .medium)).frame(width: 30, height: 30)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .help("Attach images or documents")
-                .accessibilityLabel("Attach files")
-                TextField("Message Kapitsa", text: $chat.draft, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .lineLimit(1...8)
-                    .focused($composerFocused)
-                    .onSubmit(send)
-                    .padding(.vertical, 6)
-                if chat.isStreaming {
-                    Button(action: chat.stop) {
-                        Image(systemName: "stop.fill").frame(width: 30, height: 30)
-                    }
-                    .buttonStyle(.borderedProminent).tint(KapitsaTheme.accentFill)
-                    .help("Stop the reply")
-                    .accessibilityLabel("Stop")
-                } else {
-                    Button(action: send) {
-                        Image(systemName: "arrow.up").font(.system(size: 14, weight: .bold)).frame(width: 30, height: 30)
-                    }
-                    .buttonStyle(.borderedProminent).tint(KapitsaTheme.accentFill)
-                    .disabled(!chat.canSend || controller.chatConnection == nil)
-                    .keyboardShortcut(.return, modifiers: .command)
-                    .help("Send (Return; Option-Return for a new line)")
-                    .accessibilityLabel("Send")
-                }
-            }
-            .padding(.horizontal, 10).padding(.vertical, 6)
-            .background(KapitsaTheme.panel, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(KapitsaTheme.border, lineWidth: 1))
+            ChatInputRow(chat: chat, canConnect: controller.chatConnection != nil,
+                         onAttach: chooseFiles, onSend: send)
         }
-        .onAppear { composerFocused = true }
     }
 
     /// Asks where to save and what to include, then writes the Markdown and, beside it, a
@@ -246,9 +211,13 @@ struct ChatPage: View {
         }
     }
 
-    private func send() {
-        guard let connection = controller.chatConnection else { return }
+    /// Sends `text` with any attachments; false when nothing was sent, so the box keeps it.
+    private func send(_ text: String) -> Bool {
+        guard let connection = controller.chatConnection else { return false }
+        chat.draft = text
+        guard chat.canSend else { return false }
         chat.send(to: connection)
+        return true
     }
 
     private func chooseFiles() {
@@ -304,6 +273,66 @@ private struct ChatHistory: View, Equatable {
                             onExport: { onExport(message.id) }, onDelete: { onDelete(message.id) })
                 .id(message.id)
         }
+    }
+}
+
+/// The message box and the Send or Stop button. It keeps what's being typed in its own
+/// state, so a keystroke redraws only this row, not the conversation and side panel.
+private struct ChatInputRow: View {
+    @ObservedObject var chat: KapitsaChatController
+    let canConnect: Bool
+    let onAttach: () -> Void
+    let onSend: (String) -> Bool
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    private var canSend: Bool {
+        canConnect && !chat.isStreaming
+            && (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !chat.pendingAttachments.isEmpty)
+    }
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 10) {
+            Button(action: onAttach) {
+                Image(systemName: "paperclip").font(.system(size: 15, weight: .medium)).frame(width: 30, height: 30)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("Attach images or documents")
+            .accessibilityLabel("Attach files")
+            TextField("Message Kapitsa", text: $text, axis: .vertical)
+                .textFieldStyle(.plain)
+                .lineLimit(1...8)
+                .focused($focused)
+                .onSubmit(send)
+                .padding(.vertical, 6)
+            if chat.isStreaming {
+                Button(action: chat.stop) {
+                    Image(systemName: "stop.fill").frame(width: 30, height: 30)
+                }
+                .buttonStyle(.borderedProminent).tint(KapitsaTheme.accentFill)
+                .help("Stop the reply")
+                .accessibilityLabel("Stop")
+            } else {
+                Button(action: send) {
+                    Image(systemName: "arrow.up").font(.system(size: 14, weight: .bold)).frame(width: 30, height: 30)
+                }
+                .buttonStyle(.borderedProminent).tint(KapitsaTheme.accentFill)
+                .disabled(!canSend)
+                .keyboardShortcut(.return, modifiers: .command)
+                .help("Send (Return; Option-Return for a new line)")
+                .accessibilityLabel("Send")
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(KapitsaTheme.panel, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(KapitsaTheme.border, lineWidth: 1))
+        .onAppear { focused = true }
+    }
+
+    private func send() {
+        guard canSend, onSend(text) else { return }
+        text = ""
     }
 }
 

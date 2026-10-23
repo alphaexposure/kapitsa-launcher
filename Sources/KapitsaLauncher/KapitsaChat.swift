@@ -249,7 +249,9 @@ final class KapitsaChatController: ObservableObject {
     @Published private(set) var messages: [KapitsaChatMessage]
     /// The reply being written, kept apart from `messages` until it finishes.
     @Published private(set) var liveReply: KapitsaChatMessage?
-    @Published var draft = ""
+    /// The text to send. Not published: the message box keeps what's being typed and hands
+    /// it over on send, so a keystroke doesn't redraw the whole Chat page.
+    var draft = ""
     @Published var pendingAttachments: [KapitsaChatAttachment] = []
     @Published var attachmentError: String?
     /// Which theme each topic belongs to, by topic key, for the whole chat.
