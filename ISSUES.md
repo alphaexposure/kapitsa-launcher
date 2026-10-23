@@ -31,9 +31,8 @@ is committed, and note the commit.
 
 ## Chat view
 
-- [ ] **Render Markdown in replies.** Headings show as `###` and tables as raw pipes; only
-  inline Markdown (bold, italics, code, links) is rendered. Exports already keep the full
-  Markdown.
+- [x] **Render Markdown in replies.** Headings, lists, quotes, rules, code blocks and tables
+  now render, in finished replies and while they stream.
 
 ## Small fixes
 

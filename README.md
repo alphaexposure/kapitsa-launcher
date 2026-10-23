@@ -38,6 +38,11 @@ A native macOS app for starting, stopping and monitoring a local
 - **Chat page:** a native chat with the running model.
   - Replies stream in, with the model's reasoning in a section that folds away once the
     answer starts ("Thought for 11.6 s").
+  - Replies render their **Markdown**: headings, bulleted and numbered lists (nested), quotes,
+    rules, code blocks (monospaced, scrolling sideways, with a Copy button) and tables (a grid
+    with a shaded header and column alignment; wide tables scroll sideways). Half-written
+    tables and code blocks show as they stream in. The parser is the launcher's own, with no
+    third-party code.
   - A **Thinking** picker: Off, Low, Medium or Extra high. Kapitsa's own chat page only offers
     on or off; the launcher sends `reasoning_effort`, which the Qwen3.8 27B reads.
   - **Attachments:** drop or attach images, which Kapitsa reads itself, and documents (PDF,
