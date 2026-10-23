@@ -181,7 +181,9 @@ final class KapitsaChatTopicsControllerTests: XCTestCase {
         XCTAssertEqual(chat.messages.compactMap(\.title), ["", "Second", ""], "no title given leaves it empty, not unset")
         XCTAssertEqual(chat.topicThemes, ["first topic": "Ordinals", "third topic": "Ordinals", "done": "Finished"])
         XCTAssertEqual(chat.repliesNeedingTopics, 0)
-        XCTAssertEqual(KapitsaChatStore(url: file).loadDocument(), .init(messages: chat.messages, topicThemes: chat.topicThemes))
+        let saved = KapitsaChatStore(url: file).loadDocument()
+        XCTAssertEqual(saved.messages, chat.messages)
+        XCTAssertEqual(saved.topicThemes, chat.topicThemes)
     }
 
     func testNewTopicsJoinExistingThemes() async throws {

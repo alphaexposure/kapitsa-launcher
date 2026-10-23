@@ -194,18 +194,27 @@ enum KapitsaChatError: LocalizedError {
 struct KapitsaChatStore {
     let url: URL
 
-    static var standard: KapitsaChatStore {
-        let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    /// The launcher's folder in Application Support.
+    static var folder: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("KapitsaLauncher", isDirectory: true)
-        return KapitsaChatStore(url: folder.appendingPathComponent("chat.json"))
     }
 
-    /// What the file holds: the messages, and which theme each topic belongs to, since themes
-    /// belong to the whole chat rather than to one message.
+    /// The single chat earlier versions kept, before the chat list. Moved into the list once
+    /// and then left in place, unchanged, as a backup.
+    static var legacy: KapitsaChatStore { KapitsaChatStore(url: folder.appendingPathComponent("chat.json")) }
+
+    /// What the file holds: the messages, which theme each topic belongs to (themes belong to
+    /// the whole chat rather than to one message), and the chat's name and dates.
     struct Document: Codable, Equatable {
         var messages: [KapitsaChatMessage] = []
         /// Topic key (see `KapitsaChatTopics.key`) to theme name.
         var topicThemes: [String: String] = [:]
+        /// A name the person gave the chat; nil keeps the automatic one.
+        var customName: String?
+        var createdAt: Date?
+        /// When the conversation last changed; folding the outline doesn't count.
+        var updatedAt: Date?
     }
 
     func load() -> [KapitsaChatMessage] { loadDocument().messages }
@@ -218,13 +227,19 @@ struct KapitsaChatStore {
     }
 
     func save(_ messages: [KapitsaChatMessage], topicThemes: [String: String] = [:]) {
+        save(Document(messages: messages, topicThemes: topicThemes))
+    }
+
+    func save(_ document: Document) {
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try JSONEncoder().encode(Document(messages: messages, topicThemes: topicThemes)).write(to: url, options: .atomic)
+            try JSONEncoder().encode(document).write(to: url, options: .atomic)
         } catch {
             // The conversation still works; it just won't be there after a relaunch.
         }
     }
+
+    var exists: Bool { FileManager.default.fileExists(atPath: url.path) }
 }
 
 /// The conversation on the Chat page, streamed from the server this launcher started.
@@ -274,8 +289,14 @@ final class KapitsaChatController: ObservableObject {
     private let streamLines: LineStreamer
     private let now: () -> Date
     private let send: KapitsaChatSummary.Send
-    /// The launcher's own requests, so the Overview can say which one it shows.
-    let requestLabels = KapitsaRequestLabels()
+    /// The launcher's own requests, so the Overview can say which one it shows; shared by
+    /// every chat.
+    let requestLabels: KapitsaRequestLabels
+    private(set) var customName: String?
+    private var createdAt: Date?
+    private var updatedAt: Date?
+    /// Called after each save, so the chat list can follow names and dates.
+    var onSave: ((KapitsaChatStore.Document) -> Void)?
     private var task: Task<Void, Never>?
     private var topicTask: Task<Void, Never>?
 
@@ -284,11 +305,12 @@ final class KapitsaChatController: ObservableObject {
         let total: Int
     }
 
-    init(store: KapitsaChatStore? = .standard, defaults: UserDefaults = .standard,
+    init(store: KapitsaChatStore? = nil, defaults: UserDefaults = .standard,
          send: @escaping KapitsaChatSummary.Send = KapitsaChatSummary.urlSessionSend,
          streamLines: @escaping LineStreamer = KapitsaChatController.urlSessionLines,
-         now: @escaping () -> Date = Date.init) {
+         now: @escaping () -> Date = Date.init, requestLabels: KapitsaRequestLabels? = nil) {
         self.store = store
+        self.requestLabels = requestLabels ?? KapitsaRequestLabels()
         self.defaults = defaults
         self.streamLines = streamLines
         self.send = send
@@ -296,6 +318,9 @@ final class KapitsaChatController: ObservableObject {
         let document = store?.loadDocument() ?? .init()
         self.messages = document.messages
         self.topicThemes = document.topicThemes
+        self.customName = document.customName
+        self.createdAt = document.createdAt
+        self.updatedAt = document.updatedAt
         self.thinking = defaults.string(forKey: Self.thinkingKey).flatMap(KapitsaThinkingLevel.init) ?? .xhigh
     }
 
@@ -348,8 +373,23 @@ final class KapitsaChatController: ObservableObject {
         task?.cancel()
     }
 
-    private func save() {
-        store?.save(messages, topicThemes: topicThemes)
+    /// Writes the chat. A new chat has no file until its first message. `touch` marks the
+    /// conversation as changed, which orders the chat list.
+    private func save(touch: Bool = true) {
+        guard let store, !(messages.isEmpty && createdAt == nil && !store.exists) else { return }
+        if createdAt == nil { createdAt = messages.first?.sentAt ?? now() }
+        if touch || updatedAt == nil { updatedAt = now() }
+        let document = KapitsaChatStore.Document(messages: messages, topicThemes: topicThemes, customName: customName,
+                                                 createdAt: createdAt, updatedAt: updatedAt)
+        store.save(document)
+        onSave?(document)
+    }
+
+    /// Names the chat; nil or blank goes back to the automatic name.
+    func rename(_ name: String?) {
+        let name = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        customName = name?.isEmpty == false ? name : nil
+        save(touch: false)
     }
 
     /// Removes a reply and the question before it, from the screen, the saved file and the
@@ -366,7 +406,7 @@ final class KapitsaChatController: ObservableObject {
         for index in messages.indices where questions.contains(messages[index].id) {
             messages[index].outlineCollapsed = collapsed ? true : nil
         }
-        save()
+        save(touch: false)
     }
 
     /// How many replies have no topics yet.
@@ -405,7 +445,8 @@ final class KapitsaChatController: ObservableObject {
         topicThemes.merge(themes) { _, new in new }
         // Themes of topics no longer in the chat, after deletes or a redo.
         topicThemes = topicThemes.filter { seen.contains($0.key) }
-        save()
+        // Found in the background, sometimes long after the chat was last used.
+        save(touch: false)
     }
 
     /// Forgets every reply's places and topics and the chat's themes, then finds them all again.
@@ -443,7 +484,7 @@ final class KapitsaChatController: ObservableObject {
             messages[current].topics = found.topics
             messages[current].places = found.places
         }
-        save()
+        save(touch: false)
     }
 
     func clear() {
