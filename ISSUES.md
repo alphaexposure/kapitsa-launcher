@@ -27,10 +27,11 @@ is committed, and note the commit.
 
 ## Chats
 
-- [ ] **Chat history list.** Several saved chats, each with its own file, outline and export,
-  in a list beside the conversation; separate windows or tabs could then show different
-  chats. Today every window and tab shows the same single chat, and New chat clears it
-  everywhere. Kapitsa's slots already allow concurrent conversations.
+- [x] **Chat history list.** Saved chats, one file each with a cached index, in a Chats column
+  beside the conversation; each window or tab shows its own chat, and chats are named by
+  their first question's title or as written. (f63d934, 877cf5a)
+- [ ] **Search inside chats.** The Chats filter matches names only; searching messages would
+  need the index to hold more text, or a search across the files.
 
 ## Chat view
 

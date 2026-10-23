@@ -84,9 +84,16 @@ A native macOS app for starting, stopping and monitoring a local
       about 10), in two short background requests with thinking off. **Find topics** does the
       same for earlier replies; **Redo all** re-indexes the chat and regroups its themes. Filter
       the list to find a place or topic.
-  - The conversation is kept between launches, in
-    `~/Library/Application Support/KapitsaLauncher/chat.json`, with its folds, places, topics
-    and themes.
+  - **Chats:** a column of your saved chats, grouped by when you last used them (Today,
+    Yesterday, Previous 7 days and so on), with a filter. New chat starts a new chat and keeps
+    the old one. Chats are named by the short title of their first question, or by the
+    question as you wrote it (the column's menu); double-click to give one a name of its own.
+    Delete moves a chat to the Trash. Each window or tab shows its own chat, a reply keeps
+    writing while you look at another chat, and an unsent message stays with its chat.
+  - Chats are kept in `~/Library/Application Support/KapitsaLauncher/Chats/`, one JSON file
+    each with its folds, places, topics and themes, plus `index.json`, a cache of names and
+    dates rebuilt from the chat files when needed. The single `chat.json` of earlier versions
+    is copied in as the first chat and left in place as a backup.
 - **Settings:** model (best for this Mac, downloaded, catalog or custom), host, port, API
   model name, context, slots, speculative drafter, memory budget, prefill chunk, SSD prefix
   cache, model switching, and an optional API key stored in the macOS Keychain.
