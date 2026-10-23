@@ -73,8 +73,9 @@ A native macOS app for starting, stopping and monitoring a local
     the model works. Sending a message still shows it.
   - **Outline and Topics:** a panel beside the chat, hidden with the Outline button. Its header
     shows about how many tokens the model reads with your next message, against its context.
-    - **Outline** lists each question, numbered, with the headings of its reply; click one to
-      jump to it. Fold a question's headings with its chevron, or all of them at once; folds
+    - **Outline** lists each question, numbered, by a short title the model writes with the
+      reply's topics (hover for the question as you wrote it), with the headings of its reply;
+      click one to jump to it. Find titles fills them in for older chats. Fold a question's headings with its chevron, or all of them at once; folds
       are kept with the chat.
     - **Topics** is an index of the chat: **Places** it discussed, then **Themes**, each opening
       to its topics, and each place or topic to the questions where it came up, the most
@@ -93,8 +94,9 @@ A native macOS app for starting, stopping and monitoring a local
   - Engine details Kapitsa prints at startup: loaded model, context and slots, memory
     allocated, memory budget, KV cache room, GPU and decoding mode.
   - Token activity for the whole server session, with prefix cache hits.
-  - A **Latest request** panel: prompt, cached and output tokens, prefill and decode time,
-    speeds and tokens per draft cycle.
+  - A **Latest chat reply** panel: prompt, cached and output tokens, prefill and decode time,
+    speeds and tokens per draft cycle. Switch it to **Any request** to include the launcher's
+    short background requests for the topic index, and export summaries, each labelled.
 - **Downloaded models** with their size on disk, and the SSD prefix cache size.
 - **Server output** log with auto-scroll, Copy, and any API key redacted.
 - **Menu bar** control to reopen the window or stop the server.

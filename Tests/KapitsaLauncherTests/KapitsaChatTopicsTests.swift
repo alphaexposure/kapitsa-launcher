@@ -5,6 +5,8 @@ import XCTest
 final class KapitsaChatTopicsTests: XCTestCase {
     func testParseSeparatesPlacesAndKeepsShortUniqueTopics() {
         let text = """
+        Title: "What is quantum mechanics?"
+        Title: A second title is ignored
         Place: None
         Place: Funchal
         place: santa Cruz, Tenerife
@@ -16,10 +18,11 @@ final class KapitsaChatTopicsTests: XCTestCase {
         - **Residency permits**
         • "cost of living"
         This line is far too long to be a short topic that someone would look up later
-        Schooling
+        Topic: Schooling
         Walkability
         """
         XCTAssertEqual(KapitsaChatTopics.parse(text), .init(
+            title: "What is quantum mechanics?",
             places: ["Funchal", "Santa Cruz, Tenerife", "Chania", "Atlanta"],
             topics: ["3BR rentals", "Residency permits", "Cost of living", "Schooling"]))
     }
@@ -106,7 +109,8 @@ final class KapitsaChatTopicsTests: XCTestCase {
 
     func testRepliesWithoutTextNeedNoTopics() {
         XCTAssertFalse(KapitsaChatMessage(role: .assistant, text: "", errorMessage: "HTTP 500").needsTopics)
-        XCTAssertFalse(KapitsaChatMessage(role: .assistant, text: "Hi", topics: []).needsTopics)
+        XCTAssertFalse(KapitsaChatMessage(role: .assistant, text: "Hi", topics: [], title: "").needsTopics)
+        XCTAssertTrue(KapitsaChatMessage(role: .assistant, text: "Hi", topics: []).needsTopics, "a reply from before titles")
         XCTAssertFalse(KapitsaChatMessage(role: .user, text: "Hi").needsTopics)
         XCTAssertTrue(KapitsaChatMessage(role: .assistant, text: "Hi").needsTopics)
     }
@@ -156,7 +160,7 @@ final class KapitsaChatTopicsControllerTests: XCTestCase {
         let file = temporaryFile()
         let messages = [
             KapitsaChatMessage(role: .user, text: "Q1"), KapitsaChatMessage(role: .assistant, text: "A1"),
-            KapitsaChatMessage(role: .user, text: "Q2"), KapitsaChatMessage(role: .assistant, text: "A2", topics: ["Done"]),
+            KapitsaChatMessage(role: .user, text: "Q2"), KapitsaChatMessage(role: .assistant, text: "A2", topics: ["Done"], title: "Second"),
             KapitsaChatMessage(role: .user, text: "Q3"), KapitsaChatMessage(role: .assistant, text: "A3"),
         ]
         let chat = controller(messages, file: file) { request in
@@ -174,6 +178,7 @@ final class KapitsaChatTopicsControllerTests: XCTestCase {
         for _ in 0..<200 where chat.topicProgress != nil { try await Task.sleep(for: .milliseconds(5)) }
         XCTAssertEqual(chat.messages.compactMap(\.topics), [["First topic"], ["Done"], ["Third topic"]])
         XCTAssertEqual(chat.messages.compactMap(\.places), [["Lisbon"], []])
+        XCTAssertEqual(chat.messages.compactMap(\.title), ["", "Second", ""], "no title given leaves it empty, not unset")
         XCTAssertEqual(chat.topicThemes, ["first topic": "Ordinals", "third topic": "Ordinals", "done": "Finished"])
         XCTAssertEqual(chat.repliesNeedingTopics, 0)
         XCTAssertEqual(KapitsaChatStore(url: file).loadDocument(), .init(messages: chat.messages, topicThemes: chat.topicThemes))
@@ -196,6 +201,22 @@ final class KapitsaChatTopicsControllerTests: XCTestCase {
         XCTAssertTrue(sentInstructions.contains("already has these themes:\nHousing and costs"))
         XCTAssertTrue(sentInstructions.hasSuffix("--\nSchools"), "only the new topic is sent")
         XCTAssertEqual(chat.topicThemes, ["rent": "Housing and costs", "schools": "Family"])
+    }
+
+    func testAReplyFromBeforeTitlesKeepsItsTopicsAndGainsATitle() async {
+        let question = KapitsaChatMessage(role: .user, text: "I went to tie my shoe and wondered what quantum mechanics is.")
+        let reply = KapitsaChatMessage(role: .assistant, text: "A", topics: ["Physics"], places: [])
+        let chat = controller([question, reply], file: temporaryFile()) { _ in
+            try JSONSerialization.data(withJSONObject: ["choices": [["message": ["content":
+                "Title: What is quantum mechanics?\nPlace: Vienna\nWave functions"]]]])
+        }
+        await chat.findTopics(replyID: reply.id, connection: connection)
+        XCTAssertEqual(chat.messages[1].title, "What is quantum mechanics?")
+        XCTAssertEqual(chat.messages[1].topics, ["Physics"])
+        XCTAssertEqual(chat.messages[1].places, [])
+        let entry = KapitsaChatOutline.entries(from: chat.messages)[0]
+        XCTAssertEqual(entry.displayTitle, "What is quantum mechanics?")
+        XCTAssertEqual(entry.fullQuestion, question.text)
     }
 
     func testAFailedTopicRequestLeavesTheReplyToTryAgain() async {

@@ -394,9 +394,21 @@ private struct ChatOutlineView: View, Equatable {
     private func outline(_ entries: [KapitsaChatOutline.Entry]) -> some View {
         let foldable = entries.filter { !$0.headings.isEmpty }
         let allCollapsed = !foldable.isEmpty && foldable.allSatisfy(\.isCollapsed)
-        HStack {
+        let untitled = entries.filter(\.needsTopics).count
+        HStack(spacing: 8) {
             Text("\(entries.count) \(entries.count == 1 ? "question" : "questions")")
                 .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            if let topicProgress {
+                Text("Titling \(topicProgress.done) of \(topicProgress.total)")
+                    .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+            } else if untitled > 0 {
+                // Titles come with each reply's topics; older chats find them here.
+                Button("Find titles", action: onFindTopics)
+                    .buttonStyle(.plain).font(.caption).foregroundStyle(KapitsaTheme.accent)
+                    .disabled(!canFindTopics)
+                    .help(canFindTopics ? "Ask the model for a short title for the \(untitled) \(untitled == 1 ? "question" : "questions") without one, with its places and topics, one at a time, with thinking off."
+                                        : "Start Kapitsa to find titles.")
+            }
             Spacer()
             if !foldable.isEmpty {
                 Button(allCollapsed ? "Expand all" : "Collapse all") {
@@ -439,7 +451,7 @@ private struct ChatTopicsView: View {
 
     var body: some View {
         let index = KapitsaChatTopics.index(entries, themes: themes)
-        let missing = entries.filter { $0.replyID != nil && $0.topics == nil }.count
+        let missing = entries.filter(\.needsTopics).count
         VStack(alignment: .leading, spacing: 6) {
             TextField("Filter places and topics", text: $filter)
                 .textFieldStyle(.roundedBorder).controlSize(.small)
@@ -471,12 +483,12 @@ private struct ChatTopicsView: View {
                 .padding(.horizontal, 12)
             } else if missing > 0 {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("\(missing) \(missing == 1 ? "reply has" : "replies have") no topics yet.")
+                    Text("\(missing) \(missing == 1 ? "reply has" : "replies have") no topics or title yet.")
                         .font(.caption).foregroundStyle(.secondary)
                     Button("Find topics", action: onFind)
                         .buttonStyle(.plain).font(.caption.weight(.medium)).foregroundStyle(KapitsaTheme.accent)
                         .disabled(!canFindTopics)
-                        .help(canFindTopics ? "Ask the model for the places and topics of those replies, one at a time, with thinking off."
+                        .help(canFindTopics ? "Ask the model for the titles, places and topics of those replies, one at a time, with thinking off."
                                             : "Start Kapitsa to find topics.")
                 }
                 .padding(.horizontal, 12)
@@ -628,6 +640,7 @@ private struct ChatTopicRow: View {
                             Text(mention.question).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
                         .padding(.leading, 14)
+                        .help(mention.fullQuestion)
                     }
                 }
             }
@@ -706,13 +719,14 @@ private struct ChatOutlineRow: View {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text("\(entry.number)").font(.caption.weight(.semibold)).monospacedDigit()
                             .foregroundStyle(KapitsaTheme.accent).frame(minWidth: 16, alignment: .trailing)
-                        Text(entry.question).font(.callout).lineLimit(2)
+                        Text(entry.displayTitle).font(.callout).lineLimit(2)
                         if entry.attachmentCount > 0 {
                             Image(systemName: "paperclip").font(.caption2).foregroundStyle(.secondary)
                         }
                     }
                 }
             }
+            .help(entry.fullQuestion)
             if let replyID = entry.replyID, !isCollapsed {
                 ForEach(Array(entry.headings.enumerated()), id: \.offset) { index, heading in
                     item(replyID, key: index) {

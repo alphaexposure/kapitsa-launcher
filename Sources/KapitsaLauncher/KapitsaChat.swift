@@ -75,9 +75,14 @@ struct KapitsaChatMessage: Codable, Equatable, Identifiable {
     var topics: [String]?
     /// For a reply: the specific places it discusses, found with its topics.
     var places: [String]?
+    /// For a reply: a few words naming what the question before it asked, found with its topics,
+    /// for the outline. Empty when the model gave none.
+    var title: String?
 
-    /// A reply with text whose topics haven't been found yet.
-    var needsTopics: Bool { role == .assistant && topics == nil && !text.isEmpty && errorMessage == nil }
+    /// A reply with text whose topics or title haven't been found yet.
+    var needsTopics: Bool {
+        role == .assistant && (topics == nil || title == nil) && !text.isEmpty && errorMessage == nil
+    }
 }
 
 /// Where the chat sends requests: the server this launcher started.
@@ -409,6 +414,7 @@ final class KapitsaChatController: ObservableObject {
         for index in messages.indices where messages[index].role == .assistant {
             messages[index].topics = nil
             messages[index].places = nil
+            messages[index].title = nil
         }
         topicThemes = [:]
         save()
@@ -421,8 +427,9 @@ final class KapitsaChatController: ObservableObject {
         topicProgress = nil
     }
 
-    /// Asks the model for one reply's topics and saves them. A failure leaves them unset, so
-    /// they can be found later; the chat itself is unaffected.
+    /// Asks the model for one reply's title, places and topics and saves them. A reply that
+    /// already has topics, from before titles, keeps them and only gains a title. A failure
+    /// leaves them unset, so they can be found later; the chat itself is unaffected.
     func findTopics(replyID: UUID, connection: KapitsaChatConnection) async {
         guard let index = messages.firstIndex(where: { $0.id == replyID }), messages[index].needsTopics else { return }
         let question = index > 0 && messages[index - 1].role == .user ? messages[index - 1] : nil
@@ -431,8 +438,11 @@ final class KapitsaChatController: ObservableObject {
                                                             existing: existing, connection: connection,
                                                             send: requestLabels.labelling(send, as: .topics)),
               let current = messages.firstIndex(where: { $0.id == replyID }) else { return }
-        messages[current].topics = found.topics
-        messages[current].places = found.places
+        messages[current].title = found.title
+        if messages[current].topics == nil {
+            messages[current].topics = found.topics
+            messages[current].places = found.places
+        }
         save()
     }
 

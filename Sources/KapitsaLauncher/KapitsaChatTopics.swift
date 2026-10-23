@@ -5,13 +5,19 @@ import Foundation
 /// theme and topic leading to the questions where it came up.
 enum KapitsaChatTopics {
     static let instructions = """
-    List what this exchange between a person and an AI assistant is about, so the person can \
-    find it again later. First, up to 4 specific places it discusses, such as cities, islands, \
-    regions or countries, each on its own line starting with "Place: ". Then 2 to 4 topics: the \
-    broad subjects it covers, such as a need, a decision, a method or a practical matter, named \
-    so they could apply to other questions too (for example: Residency permits, Cost of living, \
-    Schooling), not a summary of this one answer. Write names as headings, capitalising the \
-    first word and proper names. One per line, with no numbering, bullets or other text.
+    Describe this exchange between a person and an AI assistant, so the person can find it \
+    again later. Answer with labelled lines only, in this order:
+    Title: 3 to 7 words naming what the person asked, leaving out any story or context around \
+    it. For example, "I was out walking and wondered what quantum mechanics is" becomes \
+    "Title: What is quantum mechanics?". If the question is already short and clear, keep its \
+    wording.
+    Topic: 2 to 4 lines, each one broad subject the exchange covers, such as a need, a \
+    decision, a method or a practical matter, named so it could apply to other questions too \
+    (for example: Residency permits, Cost of living, Schooling), not a summary of this answer.
+    Place: up to 4 lines, each a specific place on a map that it discusses, such as a city, \
+    island, region or country, never an object, technology or idea. Leave these lines out \
+    when it discusses no such place.
+    Write topics and places as headings, capitalising the first word and proper names.
     """
 
     /// Added when the chat already has names, so the same place or topic keeps one name.
@@ -36,6 +42,8 @@ enum KapitsaChatTopics {
     }
 
     static let placePrefix = "place:"
+    static let titlePrefix = "title:"
+    static let maximumTitleLength = 80
     static let maximumPlaces = 4
     static let maximumTopics = 4
     static let maximumLength = 40
@@ -48,6 +56,8 @@ enum KapitsaChatTopics {
     static let replyBudget = 2_500
 
     struct Found: Equatable {
+        /// Empty when the model gave none, so the reply isn't asked again.
+        var title = ""
         var places: [String] = []
         var topics: [String] = []
     }
@@ -121,6 +131,16 @@ enum KapitsaChatTopics {
         var found = Found()
         for line in text.split(whereSeparator: \.isNewline) {
             var name = clean(String(line))
+            if name.lowercased().hasPrefix(titlePrefix) {
+                let title = String(name.dropFirst(titlePrefix.count)).trimmingCharacters(in: .whitespaces)
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "\"'`*_"))
+                if found.title.isEmpty, title.count <= maximumTitleLength { found.title = title }
+                continue
+            }
+            // Models sometimes label topics too.
+            for label in ["topics:", "topic:"] where name.lowercased().hasPrefix(label) {
+                name = clean(String(name.dropFirst(label.count)))
+            }
             let isPlace = name.lowercased().hasPrefix(placePrefix)
             if isPlace { name = clean(String(name.dropFirst(placePrefix.count))) }
             // A chat without places (mathematics, say) may still get "Place: none".
@@ -180,7 +200,10 @@ enum KapitsaChatTopics {
         /// The question, which the index scrolls to.
         let id: UUID
         let number: Int
+        /// The question's title, or its first line until it has one.
         let question: String
+        /// For hovering.
+        let fullQuestion: String
     }
 
     struct Topic: Equatable, Identifiable {
@@ -236,7 +259,8 @@ enum KapitsaChatTopics {
                 let id = key(name)
                 if topics[id] == nil { topics[id] = Topic(id: id, name: name, mentions: []) }
                 if topics[id]?.mentions.last?.id != entry.id {
-                    topics[id]?.mentions.append(Mention(id: entry.id, number: entry.number, question: entry.question))
+                    topics[id]?.mentions.append(Mention(id: entry.id, number: entry.number, question: entry.displayTitle,
+                                                        fullQuestion: entry.fullQuestion))
                 }
             }
         }

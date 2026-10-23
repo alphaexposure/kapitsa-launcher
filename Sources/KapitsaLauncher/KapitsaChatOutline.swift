@@ -7,7 +7,12 @@ enum KapitsaChatOutline {
         /// The question's message, which the outline scrolls to.
         let id: UUID
         let number: Int
+        /// The question's first line, shortened.
         let question: String
+        /// The whole question, up to `fullQuestionLength`, shown on hover.
+        var fullQuestion = ""
+        /// A few words naming what was asked, found with the reply's topics; nil until then.
+        var title: String?
         var replyID: UUID?
         var headings: [String] = []
         var attachmentCount = 0
@@ -15,11 +20,16 @@ enum KapitsaChatOutline {
         var isCollapsed = false
         /// The reply's topics; nil while they're still to be found.
         var topics: [String]? = []
+        /// Whether the reply's topics or the title are still to be found.
+        var needsTopics = false
+
+        var displayTitle: String { title ?? question }
         /// The reply's places.
         var places: [String] = []
     }
 
     static let questionLength = 90
+    static let fullQuestionLength = 600
 
     static func entries(from messages: [KapitsaChatMessage]) -> [Entry] {
         var entries: [Entry] = []
@@ -27,7 +37,7 @@ enum KapitsaChatOutline {
             switch message.role {
             case .user:
                 entries.append(Entry(id: message.id, number: entries.count + 1, question: question(for: message),
-                                     attachmentCount: message.attachments.count,
+                                     fullQuestion: fullQuestion(for: message), attachmentCount: message.attachments.count,
                                      isCollapsed: message.outlineCollapsed ?? false))
             case .assistant:
                 // A reply belongs to the question before it; one without a question gets its own entry.
@@ -36,8 +46,10 @@ enum KapitsaChatOutline {
                 }
                 entries[entries.count - 1].replyID = message.id
                 entries[entries.count - 1].headings = headings(in: message.text)
-                entries[entries.count - 1].topics = message.needsTopics ? nil : message.topics ?? []
+                entries[entries.count - 1].topics = message.topics ?? (message.needsTopics ? nil : [])
                 entries[entries.count - 1].places = message.places ?? []
+                entries[entries.count - 1].needsTopics = message.needsTopics
+                entries[entries.count - 1].title = message.title.flatMap { $0.isEmpty ? nil : $0 }
             }
         }
         return entries
@@ -62,6 +74,12 @@ enum KapitsaChatOutline {
         }
         guard firstLine.count > questionLength else { return firstLine }
         return String(firstLine.prefix(questionLength)).trimmingCharacters(in: .whitespaces) + "…"
+    }
+
+    static func fullQuestion(for message: KapitsaChatMessage) -> String {
+        let text = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.count > fullQuestionLength else { return text.isEmpty ? question(for: message) : text }
+        return String(text.prefix(fullQuestionLength)) + "…"
     }
 
     /// Markdown headings (#, ## and ###) outside code blocks, with their emphasis marks removed.
