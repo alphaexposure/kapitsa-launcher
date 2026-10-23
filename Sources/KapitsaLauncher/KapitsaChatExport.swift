@@ -255,12 +255,13 @@ struct KapitsaChatExport: Equatable {
     /// The anchor before a question's heading, which the topic index links to.
     static func anchor(_ question: Int) -> String { "question-\(question)" }
 
-    /// Places as "Places/…" and topics under their theme ("Residency/EU-family-permit"); note
-    /// apps such as Obsidian show these as nested tags.
+    /// Places as "Places/…", which note apps such as Obsidian nest, and the chat's themes.
+    /// Topics stay out: there are many and they rarely repeat across chats, so they would swell
+    /// a tag list; themes are few and recur. A chat whose topics were never grouped tags them.
     static func tags(_ index: KapitsaChatTopics.Index) -> [String] {
-        index.places.map { "Places/" + tag($0.name) } + index.themes.flatMap { theme in
-            theme.topics.map { theme.name == KapitsaChatTopics.otherTheme ? tag($0.name) : tag(theme.name) + "/" + tag($0.name) }
-        }
+        let themes = index.themes.filter { $0.name != KapitsaChatTopics.otherTheme }
+        let rest = themes.isEmpty ? index.themes.flatMap(\.topics).map { tag($0.name) } : themes.map { tag($0.name) }
+        return index.places.map { "Places/" + tag($0.name) } + rest
     }
 
     /// A topic as a tag: tags can't hold spaces in most note apps, so words join with hyphens.

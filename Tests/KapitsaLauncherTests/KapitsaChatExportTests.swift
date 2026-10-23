@@ -122,9 +122,8 @@ final class KapitsaChatExportTests: XCTestCase {
         ---
         tags:
           - Places/Funchal
-          - Places-to-live/Funchal-Madeira
-          - Costs/Cost-of-living
-          - Sensitive-skin
+          - Places-to-live
+          - Costs
         ---
         """))
         XCTAssertTrue(markdown.hasSuffix("""

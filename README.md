@@ -60,9 +60,9 @@ A native macOS app for starting, stopping and monitoring a local
     - **Save the summary as a separate file:** `<name>.md` and `<name> – Summary.md` side by
       side, the summary linking to the full file.
     - **Exclude thinking**, for a shorter full conversation.
-    - **Add topics as tags:** places and topics as `tags` in front matter at the top of the
-      file, nested as `Places/…` and `Theme/topic` for note apps such as Obsidian; spaces
-      become hyphens.
+    - **Add topics as tags:** places and themes as `tags` in front matter at the top of the
+      file (`Places/Funchal`, `Climate`), for note apps such as Obsidian; spaces become
+      hyphens. Topics stay out of tags, so tag lists don't swell; they are in the index.
 
     Replies get `Places:` and `Topics:` lines, and a **Topics** index at the end, grouped into
     places and themes, links each to its questions (in the full conversation's file, for a
@@ -99,6 +99,25 @@ A native macOS app for starting, stopping and monitoring a local
 - **Server output** log with auto-scroll, Copy, and any API key redacted.
 - **Menu bar** control to reopen the window or stop the server.
 - **Optional extras:** launch at login, and a light, dark or system appearance.
+
+## DEVONthink
+
+DEVONthink doesn't read the `tags:` block that Obsidian uses, and turning on its "Convert
+hashtags to tags" setting would also turn colour codes in web clips into tags. Instead, a
+smart rule script adds an export's tags to just that record:
+
+1. Compile the script into DEVONthink's smart rule scripts folder:
+
+   ```bash
+   osacompile -o ~/Library/Application\ Scripts/com.devon-technologies.think/Smart\ Rules/Kapitsa\ Launcher\ Tags.scpt "Scripts/DEVONthink/Kapitsa Launcher Tags.applescript"
+   ```
+
+2. In DEVONthink, choose Tools > New Smart Rule and set:
+   - **Search in:** Global Inbox (or wherever exports arrive)
+   - **Kind** is **Markdown**, and **Content** contains `Exported from Kapitsa Launcher`
+   - **Perform the following actions:** On Import, then **Apply Script** › *Kapitsa Launcher Tags*
+3. Export with **Add topics as tags** ticked. `Places/Funchal` becomes the tag *Funchal*,
+   and `Cost-of-living` becomes *Cost of living*; tags the record already has are kept.
 
 ## Requirements
 

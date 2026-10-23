@@ -34,6 +34,9 @@ is committed, and note the commit.
 - [x] **Render Markdown in replies.** Headings, lists, quotes, rules, code blocks and tables
   now render, in finished replies and while they stream.
 
+- [x] **Tags in DEVONthink.** DEVONthink ignores front matter tags; a smart rule script in
+  `Scripts/DEVONthink/` applies them, and exports tag only places and themes.
+
 ## Small fixes
 
 - [ ] **Token count reads high after deleting a middle turn.** The outline's estimate starts
