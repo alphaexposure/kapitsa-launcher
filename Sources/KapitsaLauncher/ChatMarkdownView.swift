@@ -106,11 +106,7 @@ private struct ChatMarkdownCode: View {
             HStack {
                 Text(language.isEmpty ? "Code" : language)
                 Spacer()
-                CopyButton(text: code, help: "Copy the code") { copied in
-                    Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Copy code")
+                ChatMarkdownCopyButton(text: code, help: "Copy the code", accessibilityLabel: "Copy code")
             }
             .font(.caption).foregroundStyle(.secondary)
             .padding(.horizontal, 12).padding(.top, 7).padding(.bottom, 5)
@@ -129,10 +125,26 @@ private struct ChatMarkdownCode: View {
 }
 
 /// A table as a grid with a shaded header; wide tables scroll sideways instead of squashing.
+/// Copy puts it on the clipboard as a Markdown table, and as tab-separated text for spreadsheets.
 private struct ChatMarkdownTable: View {
     let table: KapitsaChatMarkdown.Table
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text("Table")
+                Spacer()
+                ChatMarkdownCopyButton(text: table.markdown, otherTypes: [.tabularText: table.tabSeparated],
+                                       help: "Copy the table as Markdown (spreadsheets get tab-separated text)",
+                                       accessibilityLabel: "Copy table")
+            }
+            .font(.caption).foregroundStyle(.secondary)
+            .padding(.horizontal, 12)
+            grid
+        }
+    }
+
+    private var grid: some View {
         ScrollView(.horizontal) {
             // The border colour shows through the gaps between cells as grid lines.
             ChatTableLayout(columns: table.header.count, maxColumnWidth: 340, spacing: 1) {
@@ -160,6 +172,22 @@ private struct ChatMarkdownTable: View {
             .padding(.horizontal, 10).padding(.vertical, 6)
             .frame(maxWidth: .infinity, maxHeight: .infinity,
                    alignment: alignment == .center ? .top : alignment == .trailing ? .topTrailing : .topLeading)
+    }
+}
+
+/// The Copy button in a code block's or table's header, confirming with a checkmark.
+private struct ChatMarkdownCopyButton: View {
+    let text: String
+    var otherTypes: [NSPasteboard.PasteboardType: String] = [:]
+    let help: String
+    let accessibilityLabel: String
+
+    var body: some View {
+        CopyButton(text: text, help: help, otherTypes: otherTypes) { copied in
+            Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
     }
 }
 

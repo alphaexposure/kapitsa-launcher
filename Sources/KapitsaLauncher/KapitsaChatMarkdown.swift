@@ -28,6 +28,41 @@ enum KapitsaChatMarkdown {
         var header: [String]
         /// Every row has a cell for each column, padded when the model left some out.
         var rows: [[String]]
+
+        /// The table as a GitHub pipe table, its columns padded to line up in plain text.
+        var markdown: String {
+            let escaped = ([header] + rows).map { $0.map { $0.replacingOccurrences(of: "|", with: "\\|") } }
+            let widths = alignments.indices.map { column in
+                max(3, escaped.map { $0[column].count }.max() ?? 0)
+            }
+            func line(_ cells: [String]) -> String {
+                "| " + cells.enumerated().map { column, cell in
+                    let padding = String(repeating: " ", count: widths[column] - cell.count)
+                    return alignments[column] == .trailing ? padding + cell : cell + padding
+                }.joined(separator: " | ") + " |"
+            }
+            let delimiter = "| " + alignments.enumerated().map { column, alignment in
+                let dashes = widths[column]
+                switch alignment {
+                case .leading: return String(repeating: "-", count: dashes)
+                case .center: return ":" + String(repeating: "-", count: dashes - 2) + ":"
+                case .trailing: return String(repeating: "-", count: dashes - 1) + ":"
+                }
+            }.joined(separator: " | ") + " |"
+            return ([line(escaped[0]), delimiter] + escaped.dropFirst().map(line)).joined(separator: "\n")
+        }
+
+        /// The table as tab-separated plain text for spreadsheets: inline Markdown is dropped,
+        /// and line breaks and tabs inside a cell become spaces so each row stays one line.
+        var tabSeparated: String {
+            ([header] + rows).map { row in
+                row.map { cell in
+                    KapitsaChatMarkdown.plainText(cell)
+                        .components(separatedBy: CharacterSet(charactersIn: "\t\n\r\u{2028}"))
+                        .joined(separator: " ")
+                }.joined(separator: "\t")
+            }.joined(separator: "\n")
+        }
     }
 
     static func blocks(in text: String) -> [Block] {
@@ -220,8 +255,24 @@ enum KapitsaChatMarkdown {
                 }
                 let indent = leadingSpaces(line)
                 let nested = listMarker(line).map { $0.indent > marker.indent } ?? false
-                if indent >= marker.contentIndent || nested {
-                    itemLines.append(String(line.dropFirst(min(indent, marker.contentIndent))))
+                let drop = min(indent, marker.contentIndent)
+                if indent > marker.indent, let fence = fence(String(line.dropFirst(drop))) {
+                    // A code block in the item, which may be indented short of the item's
+                    // text: keep every line to its closing fence, blank or not.
+                    itemLines.append(String(line.dropFirst(drop)))
+                    index += 1
+                    while index < lines.endIndex {
+                        let codeLine = String(lines[index].dropFirst(min(leadingSpaces(lines[index]), drop)))
+                        itemLines.append(codeLine)
+                        index += 1
+                        let trimmed = codeLine.trimmingCharacters(in: .whitespaces)
+                        if leadingSpaces(codeLine) <= 3, trimmed.count >= fence.length,
+                           trimmed.allSatisfy({ $0 == fence.character }) { break }
+                    }
+                    sawBlank = false
+                    continue
+                } else if indent >= marker.contentIndent || nested {
+                    itemLines.append(String(line.dropFirst(drop)))
                 } else if !sawBlank, !startsBlock(at: index, in: lines) {
                     // A lazy continuation of the item's paragraph.
                     itemLines.append(line.trimmingCharacters(in: .whitespaces))
@@ -310,6 +361,14 @@ enum KapitsaChatMarkdown {
         if escaped { cell.append("\\") }
         cells.append(cell.trimmingCharacters(in: .whitespaces))
         return cells
+    }
+
+    /// A cell's inline Markdown as the plain text it shows, with HTML line breaks as newlines.
+    static func plainText(_ inline: String) -> String {
+        let text = inline.replacingOccurrences(of: #"<br\s*/?>"#, with: "\n", options: [.regularExpression, .caseInsensitive])
+        guard let attributed = try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))
+        else { return text }
+        return String(attributed.characters)
     }
 
     // MARK: Lines

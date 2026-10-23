@@ -100,6 +100,26 @@ final class KapitsaChatMarkdownTests: XCTestCase {
         ])
     }
 
+    func testTableAsMarkdownAndTabSeparated() {
+        let table = KapitsaChatMarkdown.Table(
+            alignments: [.leading, .trailing, .center],
+            header: ["Gas", "Boils", "Note"],
+            rows: [["**Helium**", "4.2 K", "`a|b`"], ["Neon", "27 K", "line<br>break"]])
+        XCTAssertEqual(table.markdown, """
+        | Gas        | Boils | Note          |
+        | ---------- | ----: | :-----------: |
+        | **Helium** | 4.2 K | `a\\|b`        |
+        | Neon       |  27 K | line<br>break |
+        """)
+        XCTAssertEqual(table.tabSeparated, "Gas\tBoils\tNote\nHelium\t4.2 K\ta|b\nNeon\t27 K\tline break")
+    }
+
+    func testTableMarkdownParsesBackToTheSameTable() {
+        let text = "| Name | Mass | Note |\n|:--|--:|:-:|\n| He | 4.0 | `a\\|b` |\n| Ne | 20.2 | |"
+        guard case let .table(table) = KapitsaChatMarkdown.blocks(in: text).first else { return XCTFail("No table") }
+        XCTAssertEqual(KapitsaChatMarkdown.blocks(in: table.markdown), [.table(table)])
+    }
+
     func testCodeFences() {
         let text = """
         ```swift
@@ -115,6 +135,24 @@ final class KapitsaChatMarkdownTests: XCTestCase {
         XCTAssertEqual(KapitsaChatMarkdown.blocks(in: text), [
             .code(language: "swift", code: "let x = 1\n    indented()\n\n# not a heading"),
             .code(language: "", code: "tilde ``` inside"),
+        ])
+    }
+
+    func testCodeBlocksInListItems() {
+        let install = Block.code(language: "bash", code: "brew install x\n\n# done")
+        // Indented to the item's text, and short of it by one space, as models write under "1.".
+        for indent in ["   ", "  "] {
+            let text = "1. Install:\n\(indent)```bash\n\(indent)brew install x\n\n\(indent)# done\n\(indent)```\n2. Run it"
+            XCTAssertEqual(KapitsaChatMarkdown.blocks(in: text), [
+                .list(.init(isOrdered: true, start: 1, items: [
+                    [.paragraph("Install:"), install],
+                    [.paragraph("Run it")],
+                ])),
+            ], "Indent \(indent.count)")
+        }
+        XCTAssertEqual(KapitsaChatMarkdown.blocks(in: "- Run:\n  ```\n  make\n  ```\n\nAfter"), [
+            .list(.init(isOrdered: false, start: 1, items: [[.paragraph("Run:"), .code(language: "", code: "make")]])),
+            .paragraph("After"),
         ])
     }
 

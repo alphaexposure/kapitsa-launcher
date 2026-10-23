@@ -104,10 +104,12 @@ struct SettingField: View {
     }
 }
 
-/// A button that copies text to the clipboard and briefly confirms it.
+/// A button that copies text to the clipboard and briefly confirms it. Other forms of the
+/// same content can go along with it, for apps that prefer them (tab-separated text, say).
 struct CopyButton<ButtonLabel: View>: View {
     let text: String
     let help: String
+    var otherTypes: [NSPasteboard.PasteboardType: String] = [:]
     @ViewBuilder let label: (_ copied: Bool) -> ButtonLabel
     @State private var copied = false
     @State private var resetTask: Task<Void, Never>?
@@ -116,6 +118,7 @@ struct CopyButton<ButtonLabel: View>: View {
         Button {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
+            for (type, other) in otherTypes { NSPasteboard.general.setString(other, forType: type) }
             copied = true
             resetTask?.cancel()
             resetTask = Task { @MainActor in
