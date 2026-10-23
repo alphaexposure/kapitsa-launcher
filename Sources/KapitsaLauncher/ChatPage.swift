@@ -404,6 +404,8 @@ private struct ChatTopicsView: View {
     @State private var filter = ""
     @State private var confirmRedo = false
     @State private var expanded: Set<String> = []
+    @AppStorage("chatTopicsPlacesFolded") private var placesFolded = false
+    @AppStorage("chatTopicsTopicsFolded") private var topicsFolded = false
 
     var body: some View {
         let index = KapitsaChatTopics.index(entries, themes: themes)
@@ -453,15 +455,15 @@ private struct ChatTopicsView: View {
                 LazyVStack(alignment: .leading, spacing: 1) {
                     if filter.isEmpty {
                         if !index.places.isEmpty {
-                            section("Places")
-                            ForEach(index.places) { place in
+                            section("Places", count: index.places.count, folded: $placesFolded)
+                            if !placesFolded { ForEach(index.places) { place in
                                 ChatTopicRow(topic: place, symbol: "mappin.and.ellipse", isExpanded: isExpanded("place:" + place.id),
                                              onToggle: { toggle("place:" + place.id) }, onSelect: onSelect)
-                            }
+                            } }
                         }
                         if !index.themes.isEmpty {
-                            section("Topics")
-                            ForEach(index.themes) { theme in
+                            section("Topics", count: index.themes.reduce(0) { $0 + $1.topics.count }, folded: $topicsFolded)
+                            if !topicsFolded { ForEach(index.themes) { theme in
                                 // A theme of one topic would only add a click; show the topic itself.
                                 if theme.topics.count == 1, let topic = theme.topics.first {
                                     ChatTopicRow(topic: topic, isExpanded: isExpanded("topic:" + topic.id),
@@ -469,7 +471,7 @@ private struct ChatTopicsView: View {
                                 } else {
                                     ChatThemeRow(theme: theme, expanded: $expanded, onSelect: onSelect)
                                 }
-                            }
+                            } }
                         }
                     } else {
                         ForEach(index.all.filter { $0.name.localizedCaseInsensitiveContains(filter) }) { topic in
@@ -490,10 +492,24 @@ private struct ChatTopicsView: View {
         return parts.joined(separator: " · ")
     }
 
-    private func section(_ title: String) -> some View {
-        Text(title.uppercased())
-            .font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
+    /// A section heading that folds its list away; the choice is remembered.
+    private func section(_ title: String, count: Int, folded: Binding<Bool>) -> some View {
+        Button { folded.wrappedValue.toggle() } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .bold))
+                    .rotationEffect(.degrees(folded.wrappedValue ? 0 : 90))
+                Text(title.uppercased()).font(.caption2.weight(.semibold))
+                Text("\(count)").font(.caption2).monospacedDigit()
+                Spacer()
+            }
+            .foregroundStyle(.tertiary)
             .padding(.horizontal, 6).padding(.top, 8).padding(.bottom, 2)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(folded.wrappedValue ? "Show \(title.lowercased())" : "Hide \(title.lowercased())")
+        .accessibilityLabel("\(title), \(count), \(folded.wrappedValue ? "folded" : "open")")
     }
 
     private func isExpanded(_ id: String) -> Bool { expanded.contains(id) }

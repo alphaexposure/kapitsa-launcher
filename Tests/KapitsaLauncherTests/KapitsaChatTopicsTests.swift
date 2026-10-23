@@ -5,6 +5,7 @@ import XCTest
 final class KapitsaChatTopicsTests: XCTestCase {
     func testParseSeparatesPlacesAndKeepsShortUniqueTopics() {
         let text = """
+        Place: None
         Place: Funchal
         place: santa Cruz, Tenerife
         - Place: **Chania**

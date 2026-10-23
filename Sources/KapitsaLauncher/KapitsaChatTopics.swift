@@ -87,6 +87,8 @@ enum KapitsaChatTopics {
             var name = clean(String(line))
             let isPlace = name.lowercased().hasPrefix(placePrefix)
             if isPlace { name = clean(String(name.dropFirst(placePrefix.count))) }
+            // A chat without places (mathematics, say) may still get "Place: none".
+            if ["none", "n/a", "na", "-", "no places", "none mentioned"].contains(name.lowercased()) { continue }
             guard !name.isEmpty, name.count <= maximumLength, seen.insert(key(name)).inserted else { continue }
             // Models often answer in lower case; names read as headings.
             if let first = name.first, first.isLowercase { name = first.uppercased() + name.dropFirst() }
