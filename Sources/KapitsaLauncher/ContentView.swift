@@ -4,9 +4,20 @@ import SwiftUI
 /// The main window: sidebar, page header with the server controls, and the selected page.
 struct ContentView: View {
     @ObservedObject var controller: KapitsaProcessController
-    // Not observed here: only the Chat page redraws when the conversation changes.
-    let chat: KapitsaChatController
+    // Not observed here: only the Chat page redraws when the chat list or a conversation changes.
+    let chats: KapitsaChatLibrary
     @State private var page: LauncherPage = .overview
+    /// The chat this window or tab shows, kept when the app relaunches; empty until chosen.
+    @SceneStorage("KapitsaLauncher.chatID") private var chatID = ""
+
+    /// This window's chat: the one it showed last, else the most recent, else a new one.
+    private var currentChat: UUID {
+        if let id = UUID(uuidString: chatID) { return id }
+        return chats.summaries.first?.id ?? Self.firstNewChat
+    }
+
+    /// Stands in for a window's chat until one is chosen, so it stays the same between redraws.
+    private static let firstNewChat = UUID()
 
     var body: some View {
         HStack(spacing: 0) {
@@ -30,12 +41,15 @@ struct ContentView: View {
     @ViewBuilder
     private var pageContent: some View {
         switch page {
-        case .overview: scrolling { OverviewPage(controller: controller, labels: chat.requestLabels) }
+        case .overview: scrolling { OverviewPage(controller: controller, labels: chats.requestLabels) }
         case .settings: scrolling { SettingsPage(controller: controller) }
         case .app: scrolling { AppPage() }
         case .chat:
             // The conversation has its own scroll view, with the message box pinned below it.
-            ChatPage(controller: controller, chat: chat)
+            ChatPage(controller: controller, chat: chats.controller(for: currentChat), chats: chats, chatID: currentChat,
+                     onSelectChat: { chatID = $0.uuidString })
+                // A different chat starts a fresh page: its own scroll position, sheets and draft.
+                .id(currentChat)
                 .padding(.horizontal, 30)
                 .padding(.bottom, 24)
                 // Wider than the other pages, so the outline adds room instead of taking it from the chat.

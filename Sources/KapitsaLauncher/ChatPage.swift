@@ -7,12 +7,18 @@ import UniformTypeIdentifiers
 struct ChatPage: View {
     @ObservedObject var controller: KapitsaProcessController
     @ObservedObject var chat: KapitsaChatController
+    @ObservedObject var chats: KapitsaChatLibrary
+    /// The ID of `chat`, which may have no file yet.
+    let chatID: UUID
+    /// Shows another chat, or a new one, in this window.
+    let onSelectChat: (UUID) -> Void
     @State private var isDropTargeted = false
     @State private var exportError: String?
     @State private var turnToDelete: UUID?
     /// The summary being written for an export, shown in a sheet that can cancel it.
     @State private var summaryTask: Task<Void, Never>?
     @AppStorage("chatOutlineShown") private var outlineShown = true
+    @AppStorage("chatListShown") private var chatListShown = true
     @AppStorage("chatAutoScroll") private var autoScroll = true
     private let endID = "chat-end"
 
@@ -75,6 +81,9 @@ struct ChatPage: View {
 
     private var actions: some View {
         HStack(spacing: 10) {
+            Toggle(isOn: $chatListShown) { Label("Chats", systemImage: "sidebar.left") }
+                .toggleStyle(.button)
+                .help("Chats: show or hide the list of your saved chats")
             Toggle(isOn: $autoScroll) { Label("Auto-scroll", systemImage: "arrow.down.to.line") }
                 .toggleStyle(.button)
                 .help("Auto-scroll: follow the reply as it's written. Turn off to read earlier turns while the model works.")
@@ -84,9 +93,9 @@ struct ChatPage: View {
             Button { export(chat.messages) } label: { Label("Export", systemImage: "square.and.arrow.up") }
                 .disabled(chat.messages.isEmpty || chat.isStreaming)
                 .help("Export: save the whole chat as a Markdown file")
-            Button { chat.clear() } label: { Label("New chat", systemImage: "square.and.pencil") }
+            Button { onSelectChat(UUID()) } label: { Label("New chat", systemImage: "square.and.pencil") }
                 .disabled(chat.messages.isEmpty)
-                .help("New chat: clear the conversation")
+                .help("New chat: start a new conversation; this one stays in your chats")
         }
         .fixedSize()
     }
@@ -94,6 +103,10 @@ struct ChatPage: View {
     private var conversation: some View {
         ScrollViewReader { proxy in
             HStack(alignment: .top, spacing: 12) {
+                if chatListShown {
+                    ChatListView(chats: chats, selected: chatID, onSelect: onSelectChat)
+                        .frame(width: 220)
+                }
                 ScrollView {
                     // Not lazy: a lazy stack guesses the height of messages it hasn't drawn, so
                     // jumping to the end past long replies could land below the content and show
@@ -284,8 +297,17 @@ private struct ChatInputRow: View {
     let canConnect: Bool
     let onAttach: () -> Void
     let onSend: (String) -> Bool
-    @State private var text = ""
+    @State private var text: String
     @FocusState private var focused: Bool
+
+    init(chat: KapitsaChatController, canConnect: Bool, onAttach: @escaping () -> Void, onSend: @escaping (String) -> Bool) {
+        self.chat = chat
+        self.canConnect = canConnect
+        self.onAttach = onAttach
+        self.onSend = onSend
+        // An unsent message stays with its chat while another is shown.
+        _text = State(initialValue: chat.draft)
+    }
 
     private var canSend: Bool {
         canConnect && !chat.isStreaming
@@ -306,6 +328,8 @@ private struct ChatInputRow: View {
                 .lineLimit(1...8)
                 .focused($focused)
                 .onSubmit(send)
+                // Not published, so typing doesn't redraw the page.
+                .onChange(of: text) { chat.draft = text }
                 .padding(.vertical, 6)
             if chat.isStreaming {
                 Button(action: chat.stop) {

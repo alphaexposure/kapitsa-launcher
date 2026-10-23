@@ -93,6 +93,21 @@ final class KapitsaChatLibraryTests: XCTestCase {
         XCTAssertTrue(library().summaries.isEmpty)
     }
 
+    func testChatsAreGroupedByWhenTheyWereLastUsed() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let now = Date(timeIntervalSince1970: 1_790_000_000) // 2026-09-21, 14:13 UTC
+        let day: TimeInterval = 86_400
+        func chat(_ daysAgo: Double) -> KapitsaChatLibrary.Summary {
+            let date = now.addingTimeInterval(-daysAgo * day)
+            return .init(id: UUID(), firstQuestion: "Q", createdAt: date, updatedAt: date, fileDate: date)
+        }
+        let groups = KapitsaChatLibrary.groups([chat(0), chat(0.2), chat(1), chat(3), chat(20), chat(60), chat(400)],
+                                               now: now, calendar: calendar)
+        XCTAssertEqual(groups.map(\.title).prefix(4), ["Today", "Yesterday", "Previous 7 days", "Previous 30 days"])
+        XCTAssertEqual(groups.map(\.chats.count), [2, 1, 1, 1, 1, 1])
+    }
+
     func testDeletingRemovesTheFileAndEntry() {
         let library = library()
         let id = write(turn("Question", at: Date()), in: library)

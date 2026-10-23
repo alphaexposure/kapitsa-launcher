@@ -29,7 +29,7 @@ struct KapitsaLauncherApp: App {
     @NSApplicationDelegateAdaptor(KapitsaAppDelegate.self) private var appDelegate
     @AppStorage("KapitsaLauncher.appearance") private var appearance = "system"
     @StateObject private var controller: KapitsaProcessController
-    @StateObject private var chat = KapitsaChatController()
+    @StateObject private var chats = KapitsaChatLibrary.standard
 
     /// The appearance chosen on the App page; nil follows macOS.
     private var colorScheme: ColorScheme? {
@@ -56,7 +56,7 @@ struct KapitsaLauncherApp: App {
 
     var body: some Scene {
         WindowGroup(id: "main") {
-            ContentView(controller: controller, chat: chat)
+            ContentView(controller: controller, chats: chats)
                 .preferredColorScheme(colorScheme)
         }
         .defaultSize(width: 1040, height: 790)

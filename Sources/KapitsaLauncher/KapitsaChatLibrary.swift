@@ -42,6 +42,8 @@ final class KapitsaChatLibrary: ObservableObject {
 
     /// Saved chats, the most recently used first.
     @Published private(set) var summaries: [Summary] = []
+    /// Chats writing a reply right now.
+    @Published private(set) var streaming: Set<UUID> = []
     /// Shared by every chat, so the Overview can label requests from any of them.
     let requestLabels = KapitsaRequestLabels()
     let folder: URL
@@ -79,6 +81,9 @@ final class KapitsaChatLibrary: ObservableObject {
         if let controller = controllers[id] { return controller }
         let controller = makeController(KapitsaChatStore(url: url(for: id)), requestLabels)
         controller.onSave = { [weak self] document in self?.update(id, from: document) }
+        controller.onStreamingChange = { [weak self] isStreaming in
+            if isStreaming { self?.streaming.insert(id) } else { self?.streaming.remove(id) }
+        }
         controllers[id] = controller
         return controller
     }
@@ -93,10 +98,42 @@ final class KapitsaChatLibrary: ObservableObject {
             controller.stop()
             controller.stopFindingTopics()
             controller.onSave = nil
+            controller.onStreamingChange = nil
+            streaming.remove(id)
         }
         trash(url(for: id))
         summaries.removeAll { $0.id == id }
         saveIndex()
+    }
+
+    struct Group {
+        let title: String
+        var chats: [Summary]
+    }
+
+    /// Chats by when they were last used: Today, Yesterday, Previous 7 days, Previous 30 days,
+    /// then each earlier month. Expects the most recent first.
+    static func groups(_ summaries: [Summary], now: Date = Date(), calendar: Calendar = .current) -> [Group] {
+        let today = calendar.startOfDay(for: now)
+        func title(_ date: Date) -> String {
+            let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: today).day ?? 0
+            switch days {
+            case ..<1: return "Today"
+            case 1: return "Yesterday"
+            case 2...7: return "Previous 7 days"
+            case 8...30: return "Previous 30 days"
+            default:
+                let sameYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
+                return date.formatted(sameYear ? .dateTime.month(.wide) : .dateTime.month(.wide).year())
+            }
+        }
+        var groups: [Group] = []
+        for summary in summaries {
+            let name = title(summary.updatedAt)
+            if groups.last?.title == name { groups[groups.count - 1].chats.append(summary) }
+            else { groups.append(Group(title: name, chats: [summary])) }
+        }
+        return groups
     }
 
     // MARK: - Index
