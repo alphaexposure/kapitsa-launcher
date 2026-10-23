@@ -84,6 +84,10 @@ A native macOS app for starting, stopping and monitoring a local
       about 10), in two short background requests with thinking off. **Find topics** does the
       same for earlier replies; **Redo all** re-indexes the chat and regroups its themes. Filter
       the list to find a place or topic.
+  - **Edit and regenerate:** the pencil under a question edits it and sends it again; the
+    arrow under a reply asks again for a new reply. Either way the conversation from that
+    question on becomes a new version, and **‹ 2 / 3 ›** under the question switches between
+    versions. Only the version shown is sent to the model, indexed and exported.
   - **Chats:** a column of your saved chats, grouped by when you last used them (Today,
     Yesterday, Previous 7 days and so on), with a filter. New chat starts a new chat and keeps
     the old one. Chats are named by the short title of their first question, or by the

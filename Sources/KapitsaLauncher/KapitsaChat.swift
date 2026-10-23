@@ -81,10 +81,49 @@ struct KapitsaChatMessage: Codable, Equatable, Identifiable {
     /// For a reply: a few words naming what the question before it asked, found with its topics,
     /// for the outline. Empty when the model gave none.
     var title: String?
+    /// For a question: the other versions of the conversation from this question on, made by
+    /// editing it or regenerating its reply. Each starts with that version's question.
+    var otherVersions: [[KapitsaChatMessage]]?
+    /// For a question with other versions: where the shown one sits among them all, from 0.
+    var versionIndex: Int?
+
+    var versionCount: Int { (otherVersions?.count ?? 0) + 1 }
 
     /// A reply with text whose topics or title haven't been found yet.
     var needsTopics: Bool {
         role == .assistant && (topics == nil || title == nil) && !text.isEmpty && errorMessage == nil
+    }
+}
+
+/// Versions of a conversation from one question on. Only the shown version is in the chat's
+/// messages, and so in what the model reads, the outline, topics and exports; the others wait
+/// on that question until shown again.
+enum KapitsaChatVersions {
+    /// Every version from `messages[index]` on, in order, the shown one included.
+    static func all(_ messages: [KapitsaChatMessage], at index: Int) -> [[KapitsaChatMessage]] {
+        var shown = Array(messages[index...])
+        let others = shown[0].otherVersions ?? []
+        let position = min(shown[0].versionIndex ?? others.count, others.count)
+        shown[0].otherVersions = nil
+        shown[0].versionIndex = nil
+        var all = others
+        all.insert(shown, at: position)
+        return all
+    }
+
+    /// `prefix`, then version `index` of `versions`, which holds the others.
+    static func showing(_ index: Int, of versions: [[KapitsaChatMessage]],
+                        after prefix: ArraySlice<KapitsaChatMessage>) -> [KapitsaChatMessage] {
+        var shown = versions[index]
+        let others = versions.enumerated().filter { $0.offset != index }.map(\.element)
+        shown[0].otherVersions = others.isEmpty ? nil : others
+        shown[0].versionIndex = others.isEmpty ? nil : index
+        return Array(prefix) + shown
+    }
+
+    /// The messages and those of every hidden version, at any depth.
+    static func everything(_ messages: [KapitsaChatMessage]) -> [KapitsaChatMessage] {
+        messages + messages.flatMap { ($0.otherVersions ?? []).flatMap(everything) }
     }
 }
 
@@ -355,6 +394,33 @@ final class KapitsaChatController: ObservableObject {
         pendingAttachments = []
         attachmentError = nil
         messages.append(user)
+        startReply(connection: connection)
+    }
+
+    /// Sends a question again as a new version of the conversation from that question on:
+    /// edited, or unchanged to regenerate its reply. The earlier versions are kept on it.
+    func resend(_ questionID: UUID, text: String, connection: KapitsaChatConnection) {
+        guard !isStreaming, let index = messages.firstIndex(where: { $0.id == questionID && $0.role == .user }) else { return }
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let attachments = messages[index].attachments
+        guard !text.isEmpty || !attachments.isEmpty else { return }
+        var versions = KapitsaChatVersions.all(messages, at: index)
+        versions.append([KapitsaChatMessage(role: .user, text: text, attachments: attachments, sentAt: now())])
+        messages = KapitsaChatVersions.showing(versions.count - 1, of: versions, after: messages[..<index])
+        startReply(connection: connection)
+    }
+
+    /// Shows another version of the conversation from this question on.
+    func showVersion(_ version: Int, of questionID: UUID) {
+        guard !isStreaming, let index = messages.firstIndex(where: { $0.id == questionID }) else { return }
+        let versions = KapitsaChatVersions.all(messages, at: index)
+        guard versions.indices.contains(version) else { return }
+        messages = KapitsaChatVersions.showing(version, of: versions, after: messages[..<index])
+        save(touch: false)
+    }
+
+    /// Streams a reply to the messages so far.
+    private func startReply(connection: KapitsaChatConnection) {
         let reply = KapitsaChatMessage(role: .assistant, text: "", thinking: thinking, model: connection.model, sentAt: now())
         liveReply = reply
 
@@ -450,8 +516,9 @@ final class KapitsaChatController: ObservableObject {
                                                                send: requestLabels.labelling(send, as: .themes)) else { return }
         if regroup { topicThemes = [:] }
         topicThemes.merge(themes) { _, new in new }
-        // Themes of topics no longer in the chat, after deletes or a redo.
-        topicThemes = topicThemes.filter { seen.contains($0.key) }
+        // Themes of topics no longer in the chat, after deletes or a redo; hidden versions keep theirs.
+        let kept = Set(KapitsaChatVersions.everything(messages).flatMap { $0.topics ?? [] }.map(KapitsaChatTopics.key))
+        topicThemes = topicThemes.filter { kept.contains($0.key) }
         // Found in the background, sometimes long after the chat was last used.
         save(touch: false)
     }

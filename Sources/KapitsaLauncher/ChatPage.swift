@@ -41,7 +41,9 @@ struct ChatPage: View {
                 turnToDelete = nil
             }
         } message: {
-            Text("It's removed from the chat and from what the model sees in later replies. This can't be undone.")
+            Text("It's removed from the chat and from what the model sees in later replies."
+                 + (turnHasOtherVersions ? " The question's other versions are deleted too." : "")
+                 + " This can't be undone.")
         }
         .sheet(isPresented: Binding(get: { summaryTask != nil }, set: { _ in })) {
             VStack(spacing: 14) {
@@ -58,6 +60,12 @@ struct ChatPage: View {
             .padding(24)
             .frame(width: 340)
         }
+    }
+
+    /// Whether the question of the turn about to be deleted has other versions.
+    private var turnHasOtherVersions: Bool {
+        guard let id = turnToDelete else { return false }
+        return KapitsaChatExport.turn(endingWith: id, in: chat.messages).contains { $0.versionCount > 1 }
     }
 
     private var toolbar: some View {
@@ -124,8 +132,13 @@ struct ChatPage: View {
                         // Finished messages don't change while a reply streams; comparing them is
                         // cheap, so SwiftUI skips redrawing them on each update.
                         ChatHistory(messages: chat.messages,
+                                    canResend: controller.chatConnection != nil && !chat.isStreaming,
                                     onExport: { id in export(KapitsaChatExport.turn(endingWith: id, in: chat.messages)) },
-                                    onDelete: { turnToDelete = $0 })
+                                    onDelete: { turnToDelete = $0 },
+                                    onResend: { id, text in
+                                        if let connection = controller.chatConnection { chat.resend(id, text: text, connection: connection) }
+                                    },
+                                    onShowVersion: { chat.showVersion($1, of: $0) })
                         .equatable()
                         if let live = chat.liveReply {
                             ChatMessageView(message: live, isLive: true, onExport: {}, onDelete: {})
@@ -276,15 +289,26 @@ struct ChatPage: View {
 /// looking inside it, so a streaming reply doesn't make SwiftUI revisit the whole conversation.
 private struct ChatHistory: View, Equatable {
     let messages: [KapitsaChatMessage]
+    /// False while a reply streams or Kapitsa isn't running.
+    let canResend: Bool
     let onExport: (UUID) -> Void
     let onDelete: (UUID) -> Void
+    /// A question's ID and the text to send it with: edited, or unchanged to regenerate.
+    let onResend: (UUID, String) -> Void
+    let onShowVersion: (UUID, Int) -> Void
 
-    static func == (lhs: ChatHistory, rhs: ChatHistory) -> Bool { lhs.messages == rhs.messages }
+    static func == (lhs: ChatHistory, rhs: ChatHistory) -> Bool {
+        lhs.messages == rhs.messages && lhs.canResend == rhs.canResend
+    }
 
     var body: some View {
-        ForEach(messages) { message in
-            ChatMessageView(message: message, isLive: false,
-                            onExport: { onExport(message.id) }, onDelete: { onDelete(message.id) })
+        ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
+            let question = index > 0 && messages[index - 1].role == .user ? messages[index - 1] : nil
+            ChatMessageView(message: message, isLive: false, canResend: canResend,
+                            onExport: { onExport(message.id) }, onDelete: { onDelete(message.id) },
+                            onResend: { onResend(message.id, $0) },
+                            onRegenerate: question.map { question in { onResend(question.id, question.text) } },
+                            onShowVersion: { onShowVersion(message.id, $0) })
                 .id(message.id)
         }
     }
@@ -803,24 +827,36 @@ private struct ChatOutlineRow: View {
 private struct ChatMessageView: View {
     let message: KapitsaChatMessage
     let isLive: Bool
+    var canResend = false
     let onExport: () -> Void
     let onDelete: () -> Void
+    var onResend: (String) -> Void = { _ in }
+    /// Sends the question before this reply again; nil for a reply without one.
+    var onRegenerate: (() -> Void)?
+    var onShowVersion: (Int) -> Void = { _ in }
+    @State private var editing = false
+    @State private var editedText = ""
 
     var body: some View {
         if message.role == .user {
             HStack {
                 Spacer(minLength: 80)
-                VStack(alignment: .trailing, spacing: 8) {
+                VStack(alignment: .trailing, spacing: 6) {
                     if !message.attachments.isEmpty {
                         HStack(spacing: 8) {
                             ForEach(message.attachments) { AttachmentChip(attachment: $0, onRemove: nil) }
                         }
                     }
-                    if !message.text.isEmpty {
-                        Text(message.text)
-                            .textSelection(.enabled)
-                            .padding(.horizontal, 14).padding(.vertical, 10)
-                            .background(KapitsaTheme.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 14))
+                    if editing {
+                        editor
+                    } else {
+                        if !message.text.isEmpty {
+                            Text(message.text)
+                                .textSelection(.enabled)
+                                .padding(.horizontal, 14).padding(.vertical, 10)
+                                .background(KapitsaTheme.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 14))
+                        }
+                        questionFooter
                     }
                 }
             }
@@ -845,7 +881,13 @@ private struct ChatMessageView: View {
         if let error = message.errorMessage {
             HStack(alignment: .top, spacing: 10) {
                 Notice(error, symbol: "exclamationmark.triangle", isError: true)
-                if !isLive { deleteButton.font(.caption).foregroundStyle(.secondary).padding(.top, 8) }
+                if !isLive {
+                    HStack(spacing: 10) {
+                        regenerateButton
+                        deleteButton
+                    }
+                    .font(.caption).foregroundStyle(.secondary).padding(.top, 8)
+                }
             }
         } else if !isLive {
             HStack(spacing: 10) {
@@ -865,9 +907,75 @@ private struct ChatMessageView: View {
                     .buttonStyle(.plain)
                     .help("Save this question and reply as a Markdown file")
                     .accessibilityLabel("Export this turn as Markdown")
+                regenerateButton
                 deleteButton
             }
             .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+        }
+    }
+
+    /// The version switcher and Edit, under a question.
+    private var questionFooter: some View {
+        HStack(spacing: 8) {
+            if message.versionCount > 1 {
+                let index = message.versionIndex ?? 0
+                Button { onShowVersion(index - 1) } label: { Image(systemName: "chevron.left") }
+                    .disabled(index == 0 || !canResend)
+                    .help("Show the previous version of this question and what followed it")
+                    .accessibilityLabel("Previous version")
+                Text("\(index + 1) / \(message.versionCount)").monospacedDigit()
+                    .accessibilityLabel("Version \(index + 1) of \(message.versionCount)")
+                Button { onShowVersion(index + 1) } label: { Image(systemName: "chevron.right") }
+                    .disabled(index + 1 >= message.versionCount || !canResend)
+                    .help("Show the next version of this question and what followed it")
+                    .accessibilityLabel("Next version")
+            }
+            Button {
+                editedText = message.text
+                editing = true
+            } label: { Image(systemName: "pencil") }
+                .disabled(!canResend)
+                .help("Edit this question and send it again. The conversation from here on becomes a new version; the current one is kept.")
+                .accessibilityLabel("Edit question")
+        }
+        .buttonStyle(.plain)
+        .font(.caption).foregroundStyle(.secondary)
+    }
+
+    private var editor: some View {
+        VStack(alignment: .trailing, spacing: 8) {
+            TextField("Question", text: $editedText, axis: .vertical)
+                .textFieldStyle(.plain)
+                .lineLimit(1...12)
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .background(KapitsaTheme.inset, in: RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(KapitsaTheme.accent, lineWidth: 1))
+                .onExitCommand { editing = false }
+            HStack(spacing: 8) {
+                Button("Cancel") { editing = false }
+                    .keyboardShortcut(.cancelAction)
+                Button("Send") {
+                    editing = false
+                    onResend(editedText)
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .disabled(!canResend || (editedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                         && message.attachments.isEmpty))
+            }
+            .controlSize(.small)
+        }
+        .frame(minWidth: 320)
+    }
+
+    @ViewBuilder
+    private var regenerateButton: some View {
+        if let onRegenerate {
+            Button(action: onRegenerate) { Image(systemName: "arrow.clockwise") }
+                .buttonStyle(.plain)
+                .disabled(!canResend)
+                .help("Regenerate: send this question again for a new reply. This reply is kept as an earlier version.")
+                .accessibilityLabel("Regenerate reply")
         }
     }
 

@@ -30,6 +30,8 @@ is committed, and note the commit.
 - [x] **Chat history list.** Saved chats, one file each with a cached index, in a Chats column
   beside the conversation; each window or tab shows its own chat, and chats are named by
   their first question's title or as written. (f63d934, 877cf5a)
+- [x] **Edit and regenerate.** Edit a question or regenerate a reply; earlier versions of the
+  conversation from that question on are kept and can be switched back to.
 - [ ] **Search inside chats.** The Chats filter matches names only; searching messages would
   need the index to hold more text, or a search across the files.
 

@@ -142,6 +142,38 @@ final class KapitsaChatControllerTests: XCTestCase {
         XCTAssertEqual(KapitsaChatStore(url: file).load(), chat.messages)
     }
 
+    func testEditingAQuestionKeepsTheEarlierVersionToSwitchBackTo() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString)/chat.json")
+        let store = KapitsaChatStore(url: file)
+        let first = KapitsaChatMessage(role: .user, text: "One")
+        let second = KapitsaChatMessage(role: .user, text: "Two")
+        store.save([first, KapitsaChatMessage(role: .assistant, text: "1"), second, KapitsaChatMessage(role: .assistant, text: "2")])
+        let chat = KapitsaChatController(store: store, defaults: makeDefaults(), send: { _ in throw URLError(.cancelled) },
+                                         streamLines: lines([#"data: {"choices":[{"delta":{"content":"New"}}]}"#, "data: [DONE]"]))
+
+        // Editing the first question replaces everything from it on with a new version.
+        chat.resend(first.id, text: "  One, edited ", connection: connection)
+        await waitUntilIdle(chat)
+        XCTAssertEqual(chat.messages.map(\.text), ["One, edited", "New"])
+        XCTAssertEqual(chat.messages[0].versionCount, 2)
+        XCTAssertEqual(chat.messages[0].versionIndex, 1)
+
+        // Regenerating adds a third; the earlier versions keep what followed them.
+        chat.resend(chat.messages[0].id, text: chat.messages[0].text, connection: connection)
+        await waitUntilIdle(chat)
+        XCTAssertEqual(chat.messages[0].versionCount, 3)
+        chat.showVersion(0, of: chat.messages[0].id)
+        XCTAssertEqual(chat.messages.map(\.text), ["One", "1", "Two", "2"])
+        XCTAssertEqual(chat.messages[0].versionIndex, 0)
+        XCTAssertEqual(store.load(), chat.messages, "the shown version and the others are saved")
+
+        chat.showVersion(2, of: chat.messages[0].id)
+        XCTAssertEqual(chat.messages.map(\.text), ["One, edited", "New"])
+        // Only the shown version is sent to the model.
+        let body = KapitsaChatRequest.body(history: chat.messages, thinking: .off, model: "m")
+        XCTAssertEqual((body["messages"] as? [[String: Any]])?.count, 2)
+    }
+
     func testServerErrorIsShownOnTheReply() async throws {
         let chat = KapitsaChatController(store: nil, defaults: makeDefaults(), send: noTopics,
                                          streamLines: { _ in throw KapitsaChatError.httpStatus(401, "unauthorized") })
