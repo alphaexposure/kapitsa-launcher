@@ -67,7 +67,8 @@ A native macOS app for starting, stopping and monitoring a local
     - **Topics** is an index of the key concepts the replies covered, alphabetically, each with
       the questions where it came up. After each reply the model names its 3 to 6 concepts in
       a short background request with thinking off; **Find topics** does the same for earlier
-      replies, one at a time. Filter the list to find a concept.
+      replies, one at a time. Each request lists the chat's earlier topics so the same concept
+      keeps one name; **Redo all** re-indexes a chat that way. Filter the list to find a concept.
   - The conversation is kept between launches, in
     `~/Library/Application Support/KapitsaLauncher/chat.json`.
 - **Settings:** model (best for this Mac, downloaded, catalog or custom), host, port, API

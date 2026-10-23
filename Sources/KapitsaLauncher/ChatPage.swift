@@ -144,6 +144,7 @@ struct ChatPage: View {
                         },
                         onCollapse: { chat.setOutlineCollapsed($0, questions: $1) },
                         onFindTopics: { if let connection = controller.chatConnection { chat.findMissingTopics(connection: connection) } },
+                        onRedoTopics: { if let connection = controller.chatConnection { chat.redoAllTopics(connection: connection) } },
                         onStopFindingTopics: chat.stopFindingTopics)
                     .equatable()
                     .frame(width: 290)
@@ -322,6 +323,7 @@ private struct ChatOutlineView: View, Equatable {
     let onSelect: (UUID) -> Void
     let onCollapse: (Bool, Set<UUID>) -> Void
     let onFindTopics: () -> Void
+    let onRedoTopics: () -> Void
     let onStopFindingTopics: () -> Void
     @AppStorage("chatPanelMode") private var mode = Mode.outline
 
@@ -348,7 +350,8 @@ private struct ChatOutlineView: View, Equatable {
             case .outline: outline(entries)
             case .topics:
                 ChatTopicsView(entries: entries, canFindTopics: canFindTopics, progress: topicProgress,
-                               onSelect: onSelect, onFind: onFindTopics, onStop: onStopFindingTopics)
+                               onSelect: onSelect, onFind: onFindTopics, onRedo: onRedoTopics,
+                               onStop: onStopFindingTopics)
             }
         }
         .background(KapitsaTheme.panel, in: RoundedRectangle(cornerRadius: 14))
@@ -391,8 +394,10 @@ private struct ChatTopicsView: View {
     let progress: KapitsaChatController.TopicProgress?
     let onSelect: (UUID) -> Void
     let onFind: () -> Void
+    let onRedo: () -> Void
     let onStop: () -> Void
     @State private var filter = ""
+    @State private var confirmRedo = false
     @State private var expanded: Set<String> = []
 
     var body: some View {
@@ -405,9 +410,24 @@ private struct ChatTopicsView: View {
             TextField("Filter topics", text: $filter)
                 .textFieldStyle(.roundedBorder).controlSize(.small)
                 .padding(.horizontal, 12)
-            Text("\(topics.count) \(topics.count == 1 ? "topic" : "topics")")
-                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                .padding(.horizontal, 12)
+            HStack {
+                Text("\(topics.count) \(topics.count == 1 ? "topic" : "topics")")
+                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Spacer()
+                if !topics.isEmpty && progress == nil {
+                    Button("Redo all") { confirmRedo = true }
+                        .buttonStyle(.plain).font(.caption).foregroundStyle(KapitsaTheme.accent)
+                        .disabled(!canFindTopics)
+                        .help(canFindTopics ? "Find every reply's topics again, so the same concept shares one name."
+                                            : "Start Kapitsa to find topics.")
+                }
+            }
+            .padding(.horizontal, 12)
+            .confirmationDialog("Find all topics again?", isPresented: $confirmRedo) {
+                Button("Redo all", action: onRedo)
+            } message: {
+                Text("Each reply's topics are replaced, one reply at a time, reusing names across the chat.")
+            }
             if let progress {
                 HStack(spacing: 6) {
                     ProgressView(value: Double(progress.done), total: Double(max(progress.total, 1)))

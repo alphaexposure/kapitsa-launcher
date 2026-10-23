@@ -6,6 +6,7 @@ final class KapitsaChatTopicsTests: XCTestCase {
     func testParseKeepsShortUniqueConceptsWithoutListMarks() {
         let text = """
         1. Funchal
+        2) 3BR rentals
         - **Sensitive skin**
         • "Residency permits"
         funchal
@@ -16,7 +17,25 @@ final class KapitsaChatTopicsTests: XCTestCase {
         Healthcare
         """
         XCTAssertEqual(KapitsaChatTopics.parse(text),
-                       ["Funchal", "Sensitive skin", "Residency permits", "Cost of living", "Schools", "Walkability"])
+                       ["Funchal", "3BR rentals", "Sensitive skin", "Residency permits", "Cost of living", "Schools"])
+    }
+
+    func testEarlierTopicsAreOfferedForReuseNewestFirst() async throws {
+        let reply = KapitsaChatMessage(role: .assistant, text: "Funchal again.")
+        let messages = [
+            KapitsaChatMessage(role: .assistant, text: "A", topics: ["Funchal", "Climate"]),
+            KapitsaChatMessage(role: .assistant, text: "B", topics: ["Cost of living", "funchal"]),
+            reply,
+        ]
+        let existing = KapitsaChatTopics.existing(in: messages, excluding: reply.id)
+        XCTAssertEqual(existing, ["Cost of living", "funchal", "Climate"])
+        let connection = KapitsaChatConnection(baseURL: URL(string: "http://127.0.0.1:8000/")!, apiKey: nil, model: "m")
+        _ = try await KapitsaChatTopics.find(question: nil, reply: reply, existing: existing, connection: connection) { request in
+            let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+            let instructions = ((body["messages"] as! [[String: String]])[0])["content"]!
+            XCTAssertTrue(instructions.hasSuffix("Cost of living\nfunchal\nClimate\nWhen a concept here matches one of these, use that exact wording instead of a new one."))
+            return try JSONSerialization.data(withJSONObject: ["choices": [["message": ["content": "Funchal"]]]])
+        }
     }
 
     func testIndexGroupsTopicsAcrossQuestionsAlphabetically() {

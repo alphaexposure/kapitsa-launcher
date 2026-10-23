@@ -357,6 +357,14 @@ final class KapitsaChatController: ObservableObject {
         }
     }
 
+    /// Forgets every reply's topics and finds them again, so they share names across the chat.
+    func redoAllTopics(connection: KapitsaChatConnection) {
+        stopFindingTopics()
+        for index in messages.indices where messages[index].role == .assistant { messages[index].topics = nil }
+        store?.save(messages)
+        findMissingTopics(connection: connection)
+    }
+
     func stopFindingTopics() {
         topicTask?.cancel()
         topicTask = nil
@@ -368,8 +376,9 @@ final class KapitsaChatController: ObservableObject {
     func findTopics(replyID: UUID, connection: KapitsaChatConnection) async {
         guard let index = messages.firstIndex(where: { $0.id == replyID }), messages[index].needsTopics else { return }
         let question = index > 0 && messages[index - 1].role == .user ? messages[index - 1] : nil
+        let existing = KapitsaChatTopics.existing(in: messages, excluding: replyID)
         guard let topics = try? await KapitsaChatTopics.find(question: question, reply: messages[index],
-                                                             connection: connection, send: send),
+                                                             existing: existing, connection: connection, send: send),
               let current = messages.firstIndex(where: { $0.id == replyID }) else { return }
         messages[current].topics = topics
         store?.save(messages)
