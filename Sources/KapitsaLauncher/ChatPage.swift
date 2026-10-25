@@ -269,7 +269,8 @@ struct ChatPage: View, Equatable {
                         onFindTopics: { if let connection = server.connection { chat.findMissingTopics(connection: connection) } },
                         onRedoTopics: { if let connection = server.connection { chat.redoAllTopics(connection: connection) } },
                         onStopFindingTopics: chat.stopFindingTopics,
-                        onContinue: chat.continuedIn == nil ? continueInNewChat : nil)
+                        onContinue: chat.continuedIn == nil ? continueInNewChat : nil,
+                        chat: chat, connection: server.connection)
                     .equatable()
                     .frame(width: 290)
                 }
@@ -609,7 +610,7 @@ private struct ChatInputRow: View {
 /// concepts of every reply, alphabetically, each with the questions where it came up. Clicking
 /// a question scrolls the chat to it. Equatable for the same reason as `ChatHistory`.
 private struct ChatOutlineView: View, Equatable {
-    enum Mode: String { case outline, topics }
+    enum Mode: String { case outline, topics, review }
 
     let messages: [KapitsaChatMessage]
     /// The model's context per conversation, from Kapitsa's startup lines; nil when not running.
@@ -625,12 +626,15 @@ private struct ChatOutlineView: View, Equatable {
     let onStopFindingTopics: () -> Void
     /// Continues the chat in a new one from a summary; nil once it has been continued.
     var onContinue: (() -> Void)?
+    /// For the Review view, which follows the chat itself.
+    let chat: KapitsaChatController
+    let connection: KapitsaChatConnection?
     @AppStorage("chatPanelMode") private var mode = Mode.outline
 
     static func == (lhs: ChatOutlineView, rhs: ChatOutlineView) -> Bool {
         lhs.messages == rhs.messages && lhs.contextTokens == rhs.contextTokens
             && lhs.canFindTopics == rhs.canFindTopics && lhs.topicProgress == rhs.topicProgress
-            && lhs.topicThemes == rhs.topicThemes
+            && lhs.topicThemes == rhs.topicThemes && lhs.chat === rhs.chat && lhs.connection == rhs.connection
     }
 
     var body: some View {
@@ -639,6 +643,7 @@ private struct ChatOutlineView: View, Equatable {
             Picker("View", selection: $mode) {
                 Text("Outline").tag(Mode.outline)
                 Text("Topics").tag(Mode.topics)
+                Text("Review").tag(Mode.review)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -661,6 +666,10 @@ private struct ChatOutlineView: View, Equatable {
                 ChatTopicsView(entries: entries, themes: topicThemes, canFindTopics: canFindTopics, progress: topicProgress,
                                onSelect: onSelect, onFind: onFindTopics, onRedo: onRedoTopics,
                                onStop: onStopFindingTopics)
+            case .review:
+                ChatReviewView(chat: chat, connection: connection, contextTokens: contextTokens,
+                               numbers: Dictionary(entries.map { ($0.id, $0.number) }, uniquingKeysWith: { first, _ in first }),
+                               onSelect: onSelect)
             }
         }
         .background(KapitsaTheme.panel, in: RoundedRectangle(cornerRadius: 14))

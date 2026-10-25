@@ -119,6 +119,11 @@ struct ChatListView: View {
                     Text("\(hit.count)").font(.caption2).monospacedDigit().foregroundStyle(.secondary)
                         .help("\(hit.count) \(hit.count == 1 ? "mention" : "mentions") in this chat")
                 }
+                if chat.isReviewDue() {
+                    Image(systemName: "arrow.clockwise.circle").font(.caption).foregroundStyle(KapitsaTheme.accent)
+                        .help("Time to review: take the quiz in the Review panel again")
+                        .accessibilityLabel("Review due")
+                }
                 if chats.streaming.contains(chat.id) {
                     ProgressView().controlSize(.mini).help("Writing a reply")
                 }

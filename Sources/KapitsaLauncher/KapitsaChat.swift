@@ -279,6 +279,8 @@ struct KapitsaChatStore {
         var continuesFrom: KapitsaChatContinuation?
         /// For a chat that was continued: the new chat.
         var continuedIn: UUID?
+        /// Takeaways, the last quiz and when to review again; nil until takeaways are made.
+        var review: KapitsaChatReview?
     }
 
     func load() -> [KapitsaChatMessage] { loadDocument().messages }
@@ -371,6 +373,23 @@ final class KapitsaChatController: ObservableObject {
     var onStreamingChange: ((Bool) -> Void)?
     private var task: Task<Void, Never>?
     private var topicTask: Task<Void, Never>?
+    /// Takeaways, the last quiz and when to review again.
+    @Published private(set) var review: KapitsaChatReview
+    /// The quiz being taken. Not saved: only its result is.
+    @Published private(set) var quiz: KapitsaChatReview.Quiz?
+    /// What the model is writing for the Review panel, if anything.
+    @Published private(set) var reviewWork: ReviewWork?
+    @Published var reviewError: String?
+    private var reviewTask: Task<Void, Never>?
+    /// A quiz written ahead, with the takeaways it was written from; it's used only while
+    /// they're unchanged, since an edit or a pin can change what it should ask.
+    private var preparedQuiz: (quiz: KapitsaChatReview.Quiz, basis: [KapitsaChatReview.Takeaway])?
+    private var prepareTask: Task<Void, Never>?
+    private var prepareBasis: [KapitsaChatReview.Takeaway]?
+    /// Quiz Me was pressed while the quiz was still being written ahead.
+    private var waitsForPreparedQuiz = false
+
+    enum ReviewWork: Equatable { case takeaways, quiz, checking }
 
     struct TopicProgress: Equatable {
         var done: Int
@@ -394,6 +413,7 @@ final class KapitsaChatController: ObservableObject {
         self.continuesFrom = document.continuesFrom
         self.continuedIn = document.continuedIn
         self.createdAt = document.createdAt
+        self.review = document.review ?? KapitsaChatReview()
         // A file from before chats kept dates: its last message is when it was last used.
         self.updatedAt = document.updatedAt ?? document.messages.last?.sentAt
         self.thinking = defaults.string(forKey: Self.thinkingKey).flatMap(KapitsaThinkingLevel.init) ?? .xhigh
@@ -485,7 +505,8 @@ final class KapitsaChatController: ObservableObject {
         if touch || updatedAt == nil { updatedAt = now() }
         let document = KapitsaChatStore.Document(messages: messages, topicThemes: topicThemes, customName: customName,
                                                  createdAt: createdAt, updatedAt: updatedAt,
-                                                 continuesFrom: continuesFrom, continuedIn: continuedIn)
+                                                 continuesFrom: continuesFrom, continuedIn: continuedIn,
+                                                 review: review.isEmpty ? nil : review)
         store.save(document)
         onSave?(document)
     }
@@ -613,7 +634,201 @@ final class KapitsaChatController: ObservableObject {
         liveReply = nil
         messages = []
         topicThemes = [:]
+        stopReviewWork()
+        prepareTask?.cancel()
+        prepareTask = nil
+        prepareBasis = nil
+        preparedQuiz = nil
+        quiz = nil
+        review = KapitsaChatReview()
         save()
+    }
+
+    // MARK: Review
+
+    /// Asks for takeaways. `update` adds ones for the questions asked since, alongside the
+    /// existing ones; otherwise they're written afresh, keeping pinned ones and the person's own.
+    func writeTakeaways(connection: KapitsaChatConnection, contextTokens: Int?, update: Bool) {
+        guard reviewTask == nil, !messages.isEmpty else { return }
+        let messages = messages
+        let questions = update ? Set(review.newQuestions(in: messages)) : nil
+        if let questions, questions.isEmpty { return }
+        let kept = review.takeaways.filter(\.isKept)
+        let existing = (update ? review.takeaways : kept).map(\.text)
+        reviewError = nil
+        reviewWork = .takeaways
+        reviewTask = Task {
+            defer { reviewTask = nil; reviewWork = nil }
+            do {
+                let written = try await KapitsaChatReview.writeTakeaways(
+                    from: messages, questions: questions, existing: existing, connection: connection,
+                    contextTokens: contextTokens, send: requestLabels.labelling(send, as: .takeaways))
+                guard !Task.isCancelled else { return }
+                review.takeaways = (update ? review.takeaways : kept) + written
+                review.coveredQuestions = messages.filter { $0.role == .user }.map(\.id)
+                save(touch: false)
+            } catch {
+                guard !Task.isCancelled else { return }
+                reviewError = "Kapitsa couldn't write the takeaways: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func stopReviewWork() {
+        reviewTask?.cancel()
+        reviewTask = nil
+        reviewWork = nil
+        waitsForPreparedQuiz = false
+    }
+
+    /// Writes a quiz ahead in the background, so Quiz Me opens at once. Only while the chat is
+    /// idle: Kapitsa writes one reply at a time, so this would hold up the next chat reply.
+    func prepareQuiz(connection: KapitsaChatConnection) {
+        let basis = review.takeaways
+        guard quiz == nil, reviewTask == nil, !isStreaming, !basis.isEmpty,
+              preparedQuiz?.basis != basis, prepareBasis != basis else { return }
+        prepareTask?.cancel()
+        prepareBasis = basis
+        let takeaways = KapitsaChatReview.quizTakeaways(basis), messages = messages
+        prepareTask = Task {
+            let quiz = try? await KapitsaChatReview.writeQuiz(on: takeaways, messages: messages, connection: connection,
+                                                              send: requestLabels.labelling(send, as: .quiz))
+            guard !Task.isCancelled else { return }
+            prepareTask = nil
+            prepareBasis = nil
+            if let quiz { preparedQuiz = (quiz, basis) }
+            guard waitsForPreparedQuiz else { return }
+            waitsForPreparedQuiz = false
+            reviewWork = nil
+            startQuiz(connection: connection)
+        }
+    }
+
+    /// Adds a takeaway of the person's own; blank text adds nothing.
+    func addTakeaway(_ text: String) {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        review.takeaways.append(.init(text: text, isOwn: true))
+        save(touch: false)
+    }
+
+    /// Changes a takeaway's text; blank text deletes it.
+    func editTakeaway(_ id: UUID, text: String) {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let index = review.takeaways.firstIndex(where: { $0.id == id }) else { return }
+        if text.isEmpty { review.takeaways.remove(at: index) } else { review.takeaways[index].text = text }
+        save(touch: false)
+    }
+
+    func setTakeawayPinned(_ id: UUID, _ pinned: Bool) {
+        guard let index = review.takeaways.firstIndex(where: { $0.id == id }) else { return }
+        review.takeaways[index].pinned = pinned ? true : nil
+        save(touch: false)
+    }
+
+    func deleteTakeaway(_ id: UUID) {
+        review.takeaways.removeAll { $0.id == id }
+        save(touch: false)
+    }
+
+    /// Asks for questions on up to five takeaways, pinned ones first.
+    func startQuiz(connection: KapitsaChatConnection) {
+        guard reviewTask == nil, !waitsForPreparedQuiz else { return }
+        if let prepared = preparedQuiz, prepared.basis == review.takeaways {
+            reviewError = nil
+            quiz = prepared.quiz
+            preparedQuiz = nil
+            return
+        }
+        if prepareTask != nil && prepareBasis == review.takeaways {
+            waitsForPreparedQuiz = true
+            reviewWork = .quiz
+            return
+        }
+        let takeaways = KapitsaChatReview.quizTakeaways(review.takeaways)
+        guard !takeaways.isEmpty else { return }
+        let messages = messages
+        reviewError = nil
+        reviewWork = .quiz
+        reviewTask = Task {
+            defer { reviewTask = nil; reviewWork = nil }
+            do {
+                let quiz = try await KapitsaChatReview.writeQuiz(on: takeaways, messages: messages, connection: connection,
+                                                                 send: requestLabels.labelling(send, as: .quiz))
+                guard !Task.isCancelled else { return }
+                self.quiz = quiz
+            } catch {
+                guard !Task.isCancelled else { return }
+                reviewError = "Kapitsa couldn't write the quiz: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// Has the model check the person's answer to the current question.
+    func checkAnswer(_ reply: String, connection: KapitsaChatConnection) {
+        let reply = reply.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard reviewTask == nil, var quiz, quiz.questions.indices.contains(quiz.current), !reply.isEmpty else { return }
+        let index = quiz.current
+        quiz.questions[index].reply = reply
+        self.quiz = quiz
+        let question = quiz.questions[index], messages = messages
+        reviewError = nil
+        reviewWork = .checking
+        reviewTask = Task {
+            defer { reviewTask = nil; reviewWork = nil }
+            do {
+                let (verdict, feedback) = try await KapitsaChatReview.check(
+                    question, messages: messages, connection: connection, send: requestLabels.labelling(send, as: .quizCheck))
+                guard !Task.isCancelled, self.quiz?.questions[safe: index]?.id == question.id else { return }
+                self.quiz?.questions[index].feedback = feedback
+                answer(index, verdict)
+            } catch {
+                guard !Task.isCancelled else { return }
+                reviewError = "Kapitsa couldn't check the answer: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// Shows the current question's answer without checking.
+    func revealAnswer() {
+        guard let current = quiz?.current else { return }
+        quiz?.questions[current].isRevealed = true
+    }
+
+    /// After a shown answer: whether the person knew it.
+    func markRevealed(knewIt: Bool) {
+        guard let current = quiz?.current else { return }
+        answer(current, knewIt ? .right : .notQuite)
+    }
+
+    func showQuestion(_ index: Int) {
+        guard let quiz, quiz.questions.indices.contains(index) else { return }
+        self.quiz?.current = index
+    }
+
+    func closeQuiz() {
+        stopReviewWork()
+        quiz = nil
+    }
+
+    /// Notes the verdict; a missed answer pins its takeaway so it comes up again. Once every
+    /// question is answered, the result and the next review date are saved.
+    private func answer(_ index: Int, _ verdict: KapitsaChatReview.Verdict) {
+        guard var quiz, quiz.questions.indices.contains(index) else { return }
+        quiz.questions[index].verdict = verdict
+        if verdict != .right, let takeaway = review.takeaways.firstIndex(where: { $0.id == quiz.questions[index].takeawayID }) {
+            review.takeaways[takeaway].pinned = true
+        }
+        if quiz.isFinished && !quiz.isRecorded {
+            quiz.isRecorded = true
+            let interval = KapitsaChatReview.nextInterval(right: quiz.right, total: quiz.questions.count,
+                                                          previous: review.lastQuiz?.intervalDays)
+            review.lastQuiz = .init(date: now(), right: quiz.right, partly: quiz.partly,
+                                    total: quiz.questions.count, intervalDays: interval)
+            review.reviewDue = Calendar.current.date(byAdding: .day, value: interval, to: Calendar.current.startOfDay(for: now()))
+        }
+        self.quiz = quiz
+        save(touch: false)
     }
 
     private func apply(_ batch: Batch, replyID: UUID) {
@@ -720,4 +935,8 @@ final class KapitsaChatController: ObservableObject {
             continuation.onTermination = { _ in reader.cancel() }
         }
     }
+}
+
+extension Array {
+    subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
 }

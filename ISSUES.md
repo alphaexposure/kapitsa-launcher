@@ -22,6 +22,12 @@ is committed, and note the commit.
   and one-off names. Replies now get places plus 2 to 4 broad topics, and topics are filed
   into at most about 10 themes kept with the chat, replacing the name-merging step.
 
+- [x] **Takeaways and quiz.** A Review view in the panel: takeaways the model writes and the
+  person edits, pins and adds to, linked to their questions and updated for new ones; a quiz
+  of up to 5 questions on them, answers checked by the model, misses pinned, and a review
+  date that grows while every answer is right, marked in the Chats list.
+- [ ] **Search takeaways.** The Chats search reads messages only; takeaways the person wrote
+  themselves aren't found.
 - [x] **Question titles.** The outline and topic index name each question by a short title
   the model writes with its topics, with the question as written on hover. (b54b794, 2d79306)
 

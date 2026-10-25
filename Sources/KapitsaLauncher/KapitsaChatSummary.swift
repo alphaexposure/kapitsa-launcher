@@ -47,14 +47,20 @@ struct KapitsaChatSummary: Equatable {
         (text.utf8.count + 3) / 4
     }
 
-    /// The conversation as plain text for the model: numbered questions and replies.
-    static func transcript(_ messages: [KapitsaChatMessage]) -> [String] {
+    /// The conversation as plain text for the model: numbered questions and replies. With
+    /// `only`, just those questions and their replies, still numbered as in the whole chat.
+    static func transcript(_ messages: [KapitsaChatMessage], only: Set<UUID>? = nil) -> [String] {
         var turns: [String] = []
         var question = 0
+        var included = true
         for message in messages {
+            if message.role == .user {
+                question += 1
+                included = only?.contains(message.id) ?? true
+            }
+            guard included else { continue }
             switch message.role {
             case .user:
-                question += 1
                 var parts = ["Question \(question):"]
                 for attachment in message.attachments {
                     parts.append("[Attached \(attachment.kind == .image ? "image" : "document"): \(attachment.name)]")
