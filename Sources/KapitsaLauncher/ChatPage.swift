@@ -10,6 +10,9 @@ struct ChatServerFacts: Equatable {
     var connection: KapitsaChatConnection?
     var isRunning: Bool
     var contextTokens: Int?
+    /// The model the thinking buttons are for: the one running, else the one that ran last.
+    var thinkingModel: String?
+    var thinking: KapitsaThinkingOptions = .onOff
 }
 
 struct ChatPage: View, Equatable {
@@ -78,6 +81,7 @@ struct ChatPage: View, Equatable {
             composer
         }
         .onDrop(of: [.fileURL, .image], isTargeted: $isDropTargeted, perform: handleDrop)
+        .task(id: (server.thinkingModel ?? "") + "|" + chatID.uuidString) { applyThinking() }
         // A chat this one was continued in may have been deleted since.
         .task(id: [chatID] + chats.summaries.map(\.id)) {
             let existing = Set(chats.summaries.map(\.id))
@@ -281,16 +285,59 @@ struct ChatPage: View, Equatable {
         return KapitsaChatExport.turn(endingWith: id, in: chat.messages).contains { $0.versionCount > 1 }
     }
 
+    /// Puts the level this chat's model last used, or its default, on the buttons.
+    private func applyThinking() {
+        guard let model = server.thinkingModel else { return }
+        let level = server.thinking.valid(KapitsaThinkingChoice.saved(for: model))
+        if chat.thinking != level { chat.thinking = level }
+    }
+
+    private func setThinking(_ level: KapitsaThinkingLevel) {
+        chat.thinking = level
+        if let model = server.thinkingModel { KapitsaThinkingChoice.save(level, for: model) }
+    }
+
+    /// The level the latest reply was written with.
+    private var lastReplyLevel: KapitsaThinkingLevel? {
+        chat.messages.last { $0.role == .assistant }?.thinking
+    }
+
+    /// Whether the next reply will read the whole chat again: a model whose level sits at the
+    /// start of the prompt, set differently from the latest reply.
+    private var rereadsChat: Bool {
+        guard !chat.isStreaming, let last = lastReplyLevel else { return false }
+        return server.thinking.changesPromptStart(from: last, to: chat.thinking)
+    }
+
+    private var thinkingHelp: String {
+        let model = server.thinkingModel.map { " for \($0)" } ?? ""
+        switch server.thinking.kind {
+        case .onOff: return "Whether the model reasons before it answers\(model). Off answers at once. Applies to your next message; each model keeps its own choice."
+        case .effort: return "How much the model reasons before it answers\(model): Off, or one of its effort levels. Changing it mid-chat makes the next reply read the whole chat again, since the level is at the start of the prompt. Each model keeps its own choice."
+        case .shorterFull: return "How much the model reasons before it answers\(model): Off, Shorter (a note asks for efficient reasoning) or Full. Applies to your next message; each model keeps its own choice."
+        case .none: return "This model's chat template has no thinking switch, so it decides for itself\(model.isEmpty ? "" : " (" + server.thinkingModel! + ")")."
+        }
+    }
+
     private var toolbar: some View {
         HStack(spacing: 10) {
             Text("Thinking").font(.callout)
-            SettingHelpIcon(title: "Thinking", message: "How much the model reasons before it answers. Off answers at once. Low, Medium and Extra high are the Qwen3.8 27B's effort levels; other models may only tell Off from on. Applies to your next message.")
-            Picker("Thinking", selection: $chat.thinking) {
-                ForEach(KapitsaThinkingLevel.allCases) { Text($0.label).tag($0) }
+            SettingHelpIcon(title: "Thinking", message: thinkingHelp)
+            if server.thinking.levels.isEmpty {
+                Text("Set by the model").font(.callout).foregroundStyle(.secondary)
+            } else {
+                Picker("Thinking", selection: Binding(get: { chat.thinking }, set: setThinking)) {
+                    ForEach(server.thinking.levels) { Text(server.thinking.label($0)).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: CGFloat(server.thinking.levels.count) * 80)
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 320)
+            if rereadsChat {
+                Label("Next reply re-reads the chat", systemImage: "arrow.counterclockwise")
+                    .font(.caption).foregroundStyle(.orange)
+                    .help("This model's thinking level sits at the start of the prompt, so after a change Kapitsa can't reuse its cache: the next reply reads the whole chat again before it starts. Switching back to \(lastReplyLevel.map { server.thinking.label($0) } ?? "the earlier level") avoids it.")
+            }
             Spacer(minLength: 10)
             // Labelled buttons when there's room, icons alone in a narrow window.
             ViewThatFits(in: .horizontal) {

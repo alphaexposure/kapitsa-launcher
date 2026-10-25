@@ -62,8 +62,13 @@ struct ContentView: View {
         case .chat:
             // The conversation has its own scroll view, with the message box pinned below it.
             let shown = shownChat ?? currentChat
+            // The thinking buttons follow the model running, else the one that ran last.
+            let thinkingModel = controller.engine.model ?? UserDefaults.standard.string(forKey: KapitsaThinkingChoice.lastModelKey)
             ChatPage(server: ChatServerFacts(connection: controller.chatConnection, isRunning: controller.state.isRunning,
-                                             contextTokens: controller.engine.contextTokens),
+                                             contextTokens: controller.engine.contextTokens, thinkingModel: thinkingModel,
+                                             thinking: thinkingModel.map {
+                                                 KapitsaThinkingOptions.forModel($0, configured: controller.runningModelSetting)
+                                             } ?? .onOff),
                      chat: chats.controller(for: shown), chats: chats, chatID: shown,
                      selectedChat: currentChat, isOpening: shown != currentChat,
                      onSelectChat: { openChat($0) },
@@ -73,6 +78,11 @@ struct ContentView: View {
                 .equatable()
                 // A different chat starts a fresh page: its own scroll position, sheets and draft.
                 .id(shown)
+                .onChange(of: controller.engine.model, initial: true) {
+                    if let model = controller.engine.model {
+                        UserDefaults.standard.set(model, forKey: KapitsaThinkingChoice.lastModelKey)
+                    }
+                }
                 .padding(.horizontal, 30)
                 .padding(.bottom, 24)
                 // Wider than the other pages, so the outline adds room instead of taking it from the chat.

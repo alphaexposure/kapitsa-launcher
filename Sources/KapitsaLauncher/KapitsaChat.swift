@@ -1,25 +1,33 @@
 import Foundation
 
-/// How much the model reasons before it answers. Kapitsa takes this per request: Qwen templates
-/// read `enable_thinking`, and the Qwen3.8 27B also reads `reasoning_effort`.
+/// How much the model reasons before it answers. Kapitsa takes this per request; which levels
+/// a model offers depends on its chat template (`KapitsaThinkingOptions`). Replies keep the
+/// level they were written with.
 enum KapitsaThinkingLevel: String, CaseIterable, Codable, Identifiable {
-    case off, low, medium, xhigh
+    case off, on, low, medium, high, xhigh
+    /// Nemotron's shorter reasoning, which Kapitsa asks for as the medium effort.
+    case shorter
 
     var id: String { rawValue }
 
     var label: String {
         switch self {
         case .off: return "Off"
+        case .on: return "On"
         case .low: return "Low"
         case .medium: return "Medium"
+        case .high: return "High"
         case .xhigh: return "Extra high"
+        case .shorter: return "Shorter"
         }
     }
 
-    /// The request fields that select this level.
+    /// The request fields that select this level. On leaves the effort to the template.
     var requestFields: [String: Any] {
         switch self {
         case .off: return ["chat_template_kwargs": ["enable_thinking": false]]
+        case .on: return ["chat_template_kwargs": ["enable_thinking": true]]
+        case .shorter: return ["chat_template_kwargs": ["enable_thinking": true], "reasoning_effort": "medium"]
         default: return ["chat_template_kwargs": ["enable_thinking": true], "reasoning_effort": rawValue]
         }
     }

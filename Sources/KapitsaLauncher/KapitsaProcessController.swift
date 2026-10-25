@@ -128,6 +128,9 @@ final class KapitsaProcessController: ObservableObject {
         return components.url
     }
 
+    /// What `--model` was given for the server running now, to find its folder; nil when stopped.
+    var runningModelSetting: String? { state.isRunning ? activeConfiguration?.model : nil }
+
     /// Where the Chat page sends requests, while the server this app started is ready.
     var chatConnection: KapitsaChatConnection? {
         guard let webUIURL else { return nil }

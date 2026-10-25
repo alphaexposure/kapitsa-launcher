@@ -43,8 +43,15 @@ A native macOS app for starting, stopping and monitoring a local
     with a shaded header and column alignment; wide tables scroll sideways). Half-written
     tables and code blocks show as they stream in. The parser is the launcher's own, with no
     third-party code.
-  - A **Thinking** picker: Off, Low, Medium or Extra high. Kapitsa's own chat page only offers
-    on or off; the launcher sends `reasoning_effort`, which the Qwen3.8 27B reads.
+  - **Thinking** buttons that match the model, read from its chat template, so models you
+    bring yourself get the right ones too. Kapitsa's own chat page only offers on or off.
+    - **Off · On:** Qwen3.5 4B and 9B, Qwen3.6 35B, Nemotron Lightning and Nano.
+    - **Off · Low · Medium · Extra high:** Qwen3.8 27B and Flash Next, sent as `reasoning_effort`.
+      The level sits at the start of the prompt, so after a change the next reply reads the whole
+      chat again; the toolbar says so.
+    - **Off · Shorter · Full:** Nemotron Bolt, Super-VL and Dory; Shorter asks for efficient reasoning.
+    - **None** when the template has no switch (Flint): the model decides.
+    Each model keeps its own choice, and a template that can't be read gets Off · On.
   - **Attachments:** drop or attach images, which Kapitsa reads itself, and documents (PDF,
     Word, RTF, HTML, OpenDocument, text, Markdown, code), whose text the launcher extracts and
     adds to the message. Scanned PDFs without a text layer can't be read.
