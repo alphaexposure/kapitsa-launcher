@@ -78,6 +78,11 @@ struct ChatPage: View, Equatable {
             composer
         }
         .onDrop(of: [.fileURL, .image], isTargeted: $isDropTargeted, perform: handleDrop)
+        // A chat this one was continued in may have been deleted since.
+        .task(id: [chatID] + chats.summaries.map(\.id)) {
+            let existing = Set(chats.summaries.map(\.id))
+            chat.forgetMissingChats { existing.contains($0) }
+        }
         .confirmationDialog("Delete this question and its reply?",
                             isPresented: Binding(get: { turnToDelete != nil }, set: { if !$0 { turnToDelete = nil } })) {
             Button("Delete", role: .destructive) {
@@ -147,7 +152,39 @@ struct ChatPage: View, Equatable {
         case .delete(let id): chat.deleteTangent(id, on: replyID)
         case .branch(let id): continueTangent(id, on: replyID)
         case .open(let chatID): onSelectChat(chatID)
+        case .copy(let id):
+            guard let markdown = sideQuestionMarkdown(id, on: replyID) else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(markdown, forType: .string)
+        case .save(let id):
+            guard let markdown = sideQuestionMarkdown(id, on: replyID),
+                  let first = chat.messages.first(where: { $0.id == replyID })?.tangents?
+                      .first(where: { $0.id == id })?.messages.first else { return }
+            let panel = NSSavePanel()
+            let name = KapitsaChatOutline.question(for: first)
+                .replacingOccurrences(of: #"[/:\\?%*|"<>]"#, with: "-", options: .regularExpression)
+            panel.nameFieldStringValue = "Side question – \(name.prefix(60)).md"
+            panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
+            panel.canCreateDirectories = true
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            do {
+                try markdown.write(to: url, atomically: true, encoding: .utf8)
+            } catch {
+                exportError = "Couldn't save the side question: \(error.localizedDescription)"
+            }
         }
+    }
+
+    /// A side question as Markdown, naming this chat and the question its reply answered.
+    private func sideQuestionMarkdown(_ id: UUID, on replyID: UUID) -> String? {
+        guard let replyIndex = chat.messages.firstIndex(where: { $0.id == replyID }),
+              let tangent = chat.messages[replyIndex].tangents?.first(where: { $0.id == id }) else { return nil }
+        let reply = chat.messages[replyIndex]
+        let question = replyIndex > 0 && chat.messages[replyIndex - 1].role == .user
+            ? (reply.title.flatMap { $0.isEmpty ? nil : $0 } ?? KapitsaChatOutline.question(for: chat.messages[replyIndex - 1]))
+            : nil
+        let name = chats.summaries.first { $0.id == chatID }?.name(nameStyle) ?? "Chat"
+        return KapitsaChatExport.sideQuestion(tangent, chatName: name, about: question)
     }
 
     /// Summarises the chat up to the reply, then opens a new chat that starts from that summary
@@ -307,6 +344,7 @@ struct ChatPage: View, Equatable {
                         onFindTopics: { if let connection = server.connection { chat.findMissingTopics(connection: connection) } },
                         onRedoTopics: { if let connection = server.connection { chat.redoAllTopics(connection: connection) } },
                         onStopFindingTopics: chat.stopFindingTopics,
+                        onFoldSideQuestions: chat.setAllTangentsCollapsed,
                         onContinue: chat.continuedIn == nil ? continueInNewChat : nil,
                         chat: chat, connection: server.connection,
                         chatName: chats.summaries.first { $0.id == chatID }?.name(nameStyle) ?? "Chat")
@@ -334,7 +372,9 @@ struct ChatPage: View, Equatable {
     private var messages: some View {
                     VStack(alignment: .leading, spacing: 18) {
                         if let continuation = chat.continuesFrom {
-                            ContinuationCard(continuation: continuation, onOpen: { onSelectChat(continuation.chatID) })
+                            ContinuationCard(continuation: continuation,
+                                             onOpen: chats.summaries.contains { $0.id == continuation.chatID }
+                                                 ? { onSelectChat(continuation.chatID) } : nil)
                         }
                         if chat.messages.isEmpty && chat.liveReply == nil && chat.continuesFrom == nil {
                             VStack(spacing: 10) {
@@ -677,6 +717,8 @@ private struct ChatOutlineView: View, Equatable {
     let onFindTopics: () -> Void
     let onRedoTopics: () -> Void
     let onStopFindingTopics: () -> Void
+    /// Folds (true) or opens every side question.
+    let onFoldSideQuestions: (Bool) -> Void
     /// Continues the chat in a new one from a summary; nil once it has been continued.
     var onContinue: (() -> Void)?
     /// For the Review view, which follows the chat itself.
@@ -760,6 +802,20 @@ private struct ChatOutlineView: View, Equatable {
             }
         }
         .padding(.horizontal, 12).padding(.bottom, 6)
+        let tangents = messages.flatMap { $0.tangents ?? [] }
+        if !tangents.isEmpty {
+            let allFolded = tangents.allSatisfy { $0.isCollapsed == true }
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.turn.down.right").font(.caption).foregroundStyle(KapitsaTheme.accent)
+                Text("\(tangents.count) side \(tangents.count == 1 ? "question" : "questions")")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button(allFolded ? "Show all" : "Fold all") { onFoldSideQuestions(!allFolded) }
+                    .buttonStyle(.plain).font(.caption).foregroundStyle(KapitsaTheme.accent)
+                    .help(allFolded ? "Open every side question in the chat" : "Fold every side question in the chat away")
+            }
+            .padding(.horizontal, 12).padding(.bottom, 6)
+        }
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 2) {
                 ForEach(entries) { entry in
@@ -1040,7 +1096,8 @@ private struct OpeningOverlay: View {
 /// model starts from.
 private struct ContinuationCard: View {
     let continuation: KapitsaChatContinuation
-    let onOpen: () -> Void
+    /// Nil once the earlier chat has been deleted; the summary still stands in for it.
+    let onOpen: (() -> Void)?
     @State private var expanded = false
 
     var body: some View {
@@ -1050,7 +1107,12 @@ private struct ContinuationCard: View {
                 Text(continuation.isBranch == true ? "Branched from a side question in “\(continuation.name)”"
                      : "Continues “\(continuation.name)”").font(.callout.weight(.medium))
                 Spacer()
-                Button("Open", action: onOpen).help("Open the earlier chat")
+                if let onOpen {
+                    Button("Open", action: onOpen).help("Open the earlier chat")
+                } else {
+                    Text("Deleted").font(.caption).foregroundStyle(.secondary)
+                        .help("The earlier chat was deleted. The model still reads its summary.")
+                }
             }
             DisclosureGroup(isExpanded: $expanded) {
                 ChatMarkdownView(text: continuation.summary).padding(.top, 4)

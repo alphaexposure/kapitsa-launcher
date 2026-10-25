@@ -627,6 +627,16 @@ final class KapitsaChatController: ObservableObject {
         save(touch: false)
     }
 
+    /// Folds or opens every side question in the chat.
+    func setAllTangentsCollapsed(_ collapsed: Bool) {
+        for index in messages.indices where messages[index].tangents != nil {
+            for tangent in messages[index].tangents!.indices {
+                messages[index].tangents![tangent].isCollapsed = collapsed ? true : nil
+            }
+        }
+        save(touch: false)
+    }
+
     func deleteTangent(_ id: UUID, on replyID: UUID) {
         guard !(isTangentStreaming && tangentStream.tangentID == id),
               let replyIndex = messages.firstIndex(where: { $0.id == replyID }) else { return }
@@ -684,6 +694,25 @@ final class KapitsaChatController: ObservableObject {
     func markContinued(in chatID: UUID) {
         continuedIn = chatID
         save(touch: false)
+    }
+
+    /// Forgets links to new chats that no longer exist, such as one moved to the Trash, so this
+    /// chat, or its side question, offers to continue again. Saved only when something changed.
+    func forgetMissingChats(_ exists: (UUID) -> Bool) {
+        var changed = false
+        if let id = continuedIn, !exists(id) {
+            continuedIn = nil
+            changed = true
+        }
+        for index in messages.indices {
+            guard let tangents = messages[index].tangents,
+                  tangents.contains(where: { $0.continuedIn.map { !exists($0) } ?? false }) else { continue }
+            for tangent in tangents.indices where messages[index].tangents![tangent].continuedIn.map({ !exists($0) }) ?? false {
+                messages[index].tangents![tangent].continuedIn = nil
+            }
+            changed = true
+        }
+        if changed { save(touch: false) }
     }
 
     /// Names the chat; nil or blank goes back to the automatic name.

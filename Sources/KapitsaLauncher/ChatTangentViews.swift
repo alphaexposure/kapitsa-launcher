@@ -8,6 +8,8 @@ enum ChatTangentAction {
     case branch(UUID)
     /// Open the chat it was continued in.
     case open(UUID)
+    case copy(UUID)
+    case save(UUID)
 }
 
 /// The side questions under a reply, and the box for a new one when it's being asked.
@@ -55,14 +57,22 @@ private struct ChatTangentThread: View {
     private var isCollapsed: Bool { tangent.isCollapsed == true && live == nil }
 
     var body: some View {
+        ScrollViewReader { proxy in
         ChatTangentBox {
             VStack(alignment: .leading, spacing: 10) {
                 header
                 if !isCollapsed {
                     ForEach(tangent.messages) { message in
                         if message.role == .user {
-                            Text(message.text).font(.callout.weight(.medium)).textSelection(.enabled)
-                                .fixedSize(horizontal: false, vertical: true)
+                            // On the right in a bubble, as in the main chat, so questions and
+                            // answers can be told apart at a glance.
+                            HStack {
+                                Spacer(minLength: 40)
+                                Text(message.text).font(.callout).textSelection(.enabled)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .padding(.horizontal, 12).padding(.vertical, 8)
+                                    .background(KapitsaTheme.accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 12))
+                            }
                         } else {
                             reply(message)
                         }
@@ -83,8 +93,23 @@ private struct ChatTangentThread: View {
                         ChatTangentComposer(placeholder: "Ask a follow-up", canAsk: canAsk, autofocus: false,
                                             onAsk: onAsk, onCancel: nil)
                     }
+                    if live == nil {
+                        // A long thread's header is far up; fold from here too, keeping the
+                        // folded thread in view.
+                        HStack {
+                            Spacer()
+                            Button {
+                                onAction(.collapse(tangent.id, true))
+                                DispatchQueue.main.async { withAnimation { proxy.scrollTo(tangent.id, anchor: .center) } }
+                            } label: { Label("Fold", systemImage: "chevron.up") }
+                                .buttonStyle(.plain).font(.caption).foregroundStyle(.secondary)
+                                .help("Fold this side question away")
+                        }
+                    }
                 }
             }
+        }
+        .id(tangent.id)
         }
         .confirmationDialog("Delete this side question?", isPresented: $confirmDelete) {
             Button("Delete", role: .destructive) { onAction(.delete(tangent.id)) }
@@ -124,10 +149,13 @@ private struct ChatTangentThread: View {
                         .disabled(!canAsk || replies == 0)
                 }
                 Divider()
+                Button("Copy as Markdown") { onAction(.copy(tangent.id)) }.disabled(live != nil)
+                Button("Save As…") { onAction(.save(tangent.id)) }.disabled(live != nil)
+                Divider()
                 Button("Delete…", role: .destructive) { confirmDelete = true }.disabled(live != nil)
             } label: { Image(systemName: "ellipsis.circle") }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                .help("More: continue this side question as a new chat, or delete it")
+                .help("More: continue this side question as a new chat, copy or save it, or delete it")
         }
         .foregroundStyle(.secondary)
     }

@@ -97,8 +97,11 @@ A native macOS app for starting, stopping and monitoring a local
     away and are saved with the chat, but they're never sent with the rest of the chat, so
     later replies stay on topic. **Continue as New Chat…** in a side question's ⋯ menu starts
     a new chat from a summary of the conversation up to that reply, with the side question
-    as its first messages, linked both ways. The model writes one reply at a time, so a side
-    question waits for the main chat, and the other way round.
+    as its first messages, linked both ways. The same menu copies or saves one side question
+    as Markdown; **Fold** at the bottom of a thread folds it from there, and **Fold all** in the
+    Outline folds every side question. Exports include side questions as quotes under their
+    replies unless **Include side questions** is unticked. The model writes one reply at a
+    time, so a side question waits for the main chat, and the other way round.
   - **Edit and regenerate:** the pencil under a question edits it and sends it again; the
     arrow under a reply asks again for a new reply. Either way the conversation from that
     question on becomes a new version, and **‹ 2 / 3 ›** under the question switches between

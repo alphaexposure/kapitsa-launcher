@@ -1,7 +1,7 @@
 import AppKit
 
 /// The export options shown in the Save dialog: a summary, the full conversation, whether the
-/// two go in separate files, and whether to leave out the model's thinking. The choices are
+/// two go in separate files, whether to leave out the model's thinking, and side questions. The choices are
 /// remembered for the next export.
 @MainActor
 final class ExportOptionsAccessory: NSObject {
@@ -11,6 +11,7 @@ final class ExportOptionsAccessory: NSObject {
     private let separate = NSButton(checkboxWithTitle: "Save the summary as a separate file", target: nil, action: nil)
     private let excludeThinking = NSButton(checkboxWithTitle: "Exclude thinking", target: nil, action: nil)
     private let topicTags = NSButton(checkboxWithTitle: "Add topics as tags", target: nil, action: nil)
+    private let sideQuestions = NSButton(checkboxWithTitle: "Include side questions", target: nil, action: nil)
     private let defaults: UserDefaults
 
     private enum Key {
@@ -19,12 +20,13 @@ final class ExportOptionsAccessory: NSObject {
         static let separate = "exportSeparatesSummary"
         static let excludeThinking = "exportExcludesThinking"
         static let topicTags = "exportTopicTags"
+        static let sideQuestions = "exportIncludesSideQuestions"
     }
 
     /// - Parameter canSummarize: false when Kapitsa isn't running, so there's no model to ask.
     init(canSummarize: Bool, defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        let stack = NSStackView(views: [summary, conversation, separate, excludeThinking, topicTags])
+        let stack = NSStackView(views: [summary, conversation, separate, excludeThinking, sideQuestions, topicTags])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 6
@@ -44,7 +46,9 @@ final class ExportOptionsAccessory: NSObject {
         excludeThinking.toolTip = "Leave out the model's reasoning for a shorter file"
         topicTags.state = defaults.bool(forKey: Key.topicTags) ? .on : .off
         topicTags.toolTip = "Put the chat's topics at the top of the file as tags, which note apps such as Obsidian use. Spaces in a topic become hyphens."
-        for button in [summary, conversation, separate, excludeThinking, topicTags] {
+        sideQuestions.state = defaults.object(forKey: Key.sideQuestions) as? Bool ?? true ? .on : .off
+        sideQuestions.toolTip = "Put each side question, with its replies, under the reply it's about, set apart as a quote"
+        for button in [summary, conversation, separate, excludeThinking, sideQuestions, topicTags] {
             button.target = self
             button.action = #selector(changed(_:))
         }
@@ -56,7 +60,8 @@ final class ExportOptionsAccessory: NSObject {
                                   includeConversation: conversation.state == .on,
                                   separateFiles: separate.state == .on,
                                   includeThinking: excludeThinking.state == .off,
-                                  includeTopicTags: topicTags.state == .on)
+                                  includeTopicTags: topicTags.state == .on,
+                                  includeSideQuestions: sideQuestions.state == .on)
     }
 
     func remember() {
@@ -65,6 +70,7 @@ final class ExportOptionsAccessory: NSObject {
         defaults.set(separate.state == .on, forKey: Key.separate)
         defaults.set(excludeThinking.state == .on, forKey: Key.excludeThinking)
         defaults.set(topicTags.state == .on, forKey: Key.topicTags)
+        defaults.set(sideQuestions.state == .on, forKey: Key.sideQuestions)
     }
 
     @objc private func changed(_ sender: NSButton?) {
@@ -74,5 +80,6 @@ final class ExportOptionsAccessory: NSObject {
         }
         separate.isEnabled = summary.state == .on && conversation.state == .on
         excludeThinking.isEnabled = conversation.state == .on
+        sideQuestions.isEnabled = conversation.state == .on
     }
 }

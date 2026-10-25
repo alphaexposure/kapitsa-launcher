@@ -22,6 +22,8 @@ struct KapitsaChatExport: Equatable {
         var includeThinking = true
         /// Topics as `tags` in YAML front matter, which note apps such as Obsidian read.
         var includeTopicTags = false
+        /// Side questions, each under the reply it's about.
+        var includeSideQuestions = true
 
         /// The summary goes in its own file only when there's a full conversation to go beside.
         var savesSummarySeparately: Bool { includeSummary && includeConversation && separateFiles }
@@ -39,8 +41,8 @@ struct KapitsaChatExport: Equatable {
     ///   - topicThemes: which theme each topic belongs to, by topic key.
     init(messages: [KapitsaChatMessage], includeThinking: Bool = true, summary: KapitsaChatSummary? = nil,
          includeConversation: Bool = true, fullConversationFileName: String? = nil, includeTopicTags: Bool = false,
-         topicThemes: [String: String] = [:], exportedAt: Date = Date(), imagesFolderName: String? = nil,
-         timeZone: TimeZone = .current) {
+         topicThemes: [String: String] = [:], includeSideQuestions: Bool = true, exportedAt: Date = Date(),
+         imagesFolderName: String? = nil, timeZone: TimeZone = .current) {
         let fileName = Self.fileName(for: messages)
         let folder = imagesFolderName ?? Self.imagesFolderName(forMarkdownNamed: fileName)
         var images: [Image] = []
@@ -113,6 +115,11 @@ struct KapitsaChatExport: Equatable {
                 if message.wasStopped { lines += ["_Stopped before the reply finished._", ""] }
                 if let error = message.errorMessage { lines += ["_Error: \(error)_", ""] }
                 if let stats = Self.statsLine(message.stats) { lines += ["<sub>\(stats)</sub>", ""] }
+                if includeSideQuestions {
+                    for tangent in message.tangents ?? [] where !tangent.messages.isEmpty {
+                        lines += Self.quoted(tangent) + [""]
+                    }
+                }
             }
         }
 
@@ -174,12 +181,14 @@ struct KapitsaChatExport: Equatable {
             try KapitsaChatExport(messages: messages, includeThinking: options.includeThinking, summary: summary,
                                   includeConversation: options.includeConversation || summary == nil,
                                   includeTopicTags: options.includeTopicTags, topicThemes: topicThemes,
+                                  includeSideQuestions: options.includeSideQuestions,
                                   exportedAt: exportedAt, imagesFolderName: images, timeZone: timeZone)
                 .write(to: url)
             return [url]
         }
         try KapitsaChatExport(messages: messages, includeThinking: options.includeThinking,
                               includeTopicTags: options.includeTopicTags, topicThemes: topicThemes,
+                              includeSideQuestions: options.includeSideQuestions,
                               exportedAt: exportedAt, imagesFolderName: images, timeZone: timeZone)
             .write(to: url)
         let summaryURL = url.deletingLastPathComponent().appendingPathComponent(summaryFileName(forMarkdownNamed: fileName))
@@ -188,6 +197,43 @@ struct KapitsaChatExport: Equatable {
                               topicThemes: topicThemes, exportedAt: exportedAt, timeZone: timeZone)
             .write(to: summaryURL)
         return [url, summaryURL]
+    }
+
+    /// A side question as a quote under its reply: set apart from the conversation, which it
+    /// was never part of.
+    static func quoted(_ tangent: KapitsaTangent) -> [String] {
+        var lines = ["**Side question**", ""] + thread(tangent)
+        if tangent.continuedIn != nil { lines += ["_Continued in a new chat._", ""] }
+        while lines.last == "" { lines.removeLast() }
+        // Every line of a reply, not just its first, so its paragraphs stay in the quote.
+        return lines.flatMap { $0.split(separator: "\n", omittingEmptySubsequences: false) }
+            .map { $0.isEmpty ? ">" : "> " + $0 }
+    }
+
+    /// A side question's thread: each question marked as yours, each reply as written.
+    static func thread(_ tangent: KapitsaTangent) -> [String] {
+        var lines: [String] = []
+        for message in tangent.messages {
+            switch message.role {
+            case .user: lines += ["**You:** " + message.text, ""]
+            case .assistant:
+                if !message.text.isEmpty { lines += [message.text, ""] }
+                if message.wasStopped { lines += ["_Stopped before the reply finished._", ""] }
+                if let error = message.errorMessage { lines += ["_Error: \(error)_", ""] }
+            }
+        }
+        return lines
+    }
+
+    /// One side question as its own Markdown file, naming the chat and the reply it's about.
+    static func sideQuestion(_ tangent: KapitsaTangent, chatName: String, about question: String?,
+                             exportedAt: Date = Date(), timeZone: TimeZone = .current) -> String {
+        let first = tangent.messages.first?.text.split(whereSeparator: \.isNewline).first.map(String.init) ?? "Side question"
+        var lines = ["# Side question: \(first)", ""]
+        let about = question.map { ", about the reply to “\($0)”" } ?? ""
+        lines += ["_From “\(chatName)”\(about). Exported from Kapitsa Launcher on \(format(exportedAt, timeZone: timeZone))._", ""]
+        lines += thread(tangent)
+        return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines) + "\n"
     }
 
     /// Writes the Markdown to `url`, and any images to a folder beside it.

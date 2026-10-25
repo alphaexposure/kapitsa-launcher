@@ -74,6 +74,61 @@ final class KapitsaTangentTests: XCTestCase {
         XCTAssertNil(chat.messages[3].tangents)
     }
 
+    func testLinksToDeletedChatsAreForgotten() async throws {
+        let file = temporaryFile()
+        let chat = chat(file: file, sent: SentRequests())
+        let reply = chat.messages[1].id
+        chat.askTangent(about: reply, text: "Why?", connection: connection)
+        await waitUntilIdle(chat)
+        let tangent = try XCTUnwrap(chat.messages[1].tangents?.first?.id)
+        let kept = UUID(), deleted = UUID()
+        chat.markTangentContinued(tangent, on: reply, in: deleted)
+        chat.markContinued(in: kept)
+        chat.forgetMissingChats { $0 == kept }
+        XCTAssertEqual(chat.continuedIn, kept)
+        XCTAssertNil(chat.messages[1].tangents?.first?.continuedIn, "the side question can be continued again")
+        chat.forgetMissingChats { _ in false }
+        XCTAssertNil(chat.continuedIn)
+        XCTAssertNil(KapitsaChatStore(url: file).loadDocument().continuedIn)
+    }
+
+    func testFoldAllFoldsEverySideQuestion() async throws {
+        let chat = chat(file: temporaryFile(), sent: SentRequests())
+        chat.askTangent(about: chat.messages[1].id, text: "One?", connection: connection)
+        await waitUntilIdle(chat)
+        chat.askTangent(about: chat.messages[3].id, text: "Two?", connection: connection)
+        await waitUntilIdle(chat)
+        chat.setAllTangentsCollapsed(true)
+        XCTAssertEqual(chat.messages.compactMap { $0.tangents?.first?.isCollapsed }, [true, true])
+        chat.setAllTangentsCollapsed(false)
+        XCTAssertEqual(chat.messages.compactMap { $0.tangents?.first }.compactMap(\.isCollapsed), [])
+    }
+
+    func testExportsPutSideQuestionsUnderTheirReplyAsQuotes() {
+        var reply = KapitsaChatMessage(role: .assistant, text: "A1")
+        reply.tangents = [KapitsaTangent(messages: [KapitsaChatMessage(role: .user, text: "What's A1?"),
+                                                    KapitsaChatMessage(role: .assistant, text: "Line one.\n\nLine two.")])]
+        let messages = [KapitsaChatMessage(role: .user, text: "Q1"), reply]
+        let markdown = KapitsaChatExport(messages: messages).markdown
+        XCTAssertTrue(markdown.contains("""
+        A1
+
+        > **Side question**
+        >
+        > **You:** What's A1?
+        >
+        > Line one.
+        >
+        > Line two.
+        """), markdown)
+        XCTAssertFalse(KapitsaChatExport(messages: messages, includeSideQuestions: false).markdown.contains("Side question"))
+
+        let single = KapitsaChatExport.sideQuestion(reply.tangents![0], chatName: "Warm places", about: "Q1",
+                                                    exportedAt: Date(timeIntervalSince1970: 0), timeZone: .gmt)
+        XCTAssertTrue(single.hasPrefix("# Side question: What's A1?\n\n_From “Warm places”, about the reply to “Q1”."), single)
+        XCTAssertTrue(single.hasSuffix("**You:** What's A1?\n\nLine one.\n\nLine two.\n"), single)
+    }
+
     func testBranchStartsFromTheSummaryWithTheThreadAsItsFirstMessages() throws {
         let thread = [KapitsaChatMessage(role: .user, text: "What's A1?"), KapitsaChatMessage(role: .assistant, text: "Side answer")]
         let file = temporaryFile()

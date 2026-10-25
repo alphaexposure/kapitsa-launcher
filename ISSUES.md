@@ -11,8 +11,10 @@ is committed, and note the commit.
   questions. Build only if the index alone isn't enough.
 - [x] **Tangents.** Side questions under a reply, with follow-ups, kept out of the main
   conversation; continued as a new chat that starts from a summary up to that reply.
-- [ ] **Side questions in exports, Find and search.** Exports, Find and the Chats search
-  read the main conversation only.
+- [x] **Side questions in exports.** Quoted under their replies, with a checkbox; one side
+  question can be copied or saved on its own.
+- [ ] **Side questions in Find and search.** Find and the Chats search read the main
+  conversation only.
 - [x] **Remember folded outline questions.** Folds are saved with the chat in `chat.json`.
   (87c1a6c)
 - [x] **Topic index.** The first step toward the concept map: a Topics view listing each
