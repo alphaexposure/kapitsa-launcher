@@ -372,19 +372,26 @@ final class KapitsaProcessController: ObservableObject {
             guard let self, generation == self.pollingGeneration, self.state.isRunning else { return }
             self.statusRequest = nil
             self.statusRequestInFlight = false
+            // Assigned only when they change: every assignment redraws the windows watching this
+            // controller, and the answer is nearly always the same as a second ago.
             switch result {
             case .success(let status):
-                self.status = status
-                self.readiness = status.ready ? .ready : .loading
+                self.update(\.status, to: status)
+                self.update(\.readiness, to: status.ready ? .ready : .loading)
                 if status.ready { self.hasReachedReady = true }
-                self.statusErrorMessage = nil
+                self.update(\.statusErrorMessage, to: nil)
             case .failure(let error):
-                self.readiness = .loading
-                self.statusErrorMessage = self.hasReachedReady ? error.localizedDescription : nil
+                self.update(\.readiness, to: .loading)
+                self.update(\.statusErrorMessage, to: self.hasReachedReady ? error.localizedDescription : nil)
             }
         }
         if statusRequestInFlight && generation == pollingGeneration { statusRequest = request }
         else { request.cancel() }
+    }
+
+    private func update<Value: Equatable>(_ keyPath: ReferenceWritableKeyPath<KapitsaProcessController, Value>,
+                                          to value: Value) {
+        if self[keyPath: keyPath] != value { self[keyPath: keyPath] = value }
     }
 
     private func startPolling() {

@@ -62,11 +62,15 @@ struct ContentView: View {
         case .chat:
             // The conversation has its own scroll view, with the message box pinned below it.
             let shown = shownChat ?? currentChat
-            ChatPage(controller: controller, chat: chats.controller(for: shown), chats: chats, chatID: shown,
+            ChatPage(server: ChatServerFacts(connection: controller.chatConnection, isRunning: controller.state.isRunning,
+                                             contextTokens: controller.engine.contextTokens),
+                     chat: chats.controller(for: shown), chats: chats, chatID: shown,
                      selectedChat: currentChat, isOpening: shown != currentChat,
                      onSelectChat: { openChat($0) },
                      onOpenSearchResult: { openChat($0, find: $1) },
                      initialFind: findOnOpen)
+                // Skips the redraws the server's status checks and log lines would cause.
+                .equatable()
                 // A different chat starts a fresh page: its own scroll position, sheets and draft.
                 .id(shown)
                 .padding(.horizontal, 30)

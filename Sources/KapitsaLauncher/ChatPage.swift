@@ -4,8 +4,16 @@ import UniformTypeIdentifiers
 
 /// A chat with the model this launcher started: streamed replies, a thinking level, the
 /// model's reasoning in a collapsible section, and image and document attachments.
-struct ChatPage: View {
-    @ObservedObject var controller: KapitsaProcessController
+/// What the Chat page needs to know about the server, and nothing else: the status check runs
+/// every second and the log grows with every request, and neither should redraw a long chat.
+struct ChatServerFacts: Equatable {
+    var connection: KapitsaChatConnection?
+    var isRunning: Bool
+    var contextTokens: Int?
+}
+
+struct ChatPage: View, Equatable {
+    let server: ChatServerFacts
     @ObservedObject var chat: KapitsaChatController
     @ObservedObject var chats: KapitsaChatLibrary
     /// The ID of `chat`, which may have no file yet.
@@ -39,11 +47,17 @@ struct ChatPage: View {
     @AppStorage("chatAutoScroll") private var autoScroll = true
     private let endID = "chat-end"
 
+    /// Redrawn when what it shows changes; changes to the chat itself redraw it through `chat`.
+    static func == (lhs: ChatPage, rhs: ChatPage) -> Bool {
+        lhs.server == rhs.server && lhs.chat === rhs.chat && lhs.chatID == rhs.chatID
+            && lhs.selectedChat == rhs.selectedChat && lhs.isOpening == rhs.isOpening && lhs.initialFind == rhs.initialFind
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             toolbar
-            if controller.chatConnection == nil {
-                Notice(controller.state.isRunning ? "Kapitsa is starting. You can chat once it's ready."
+            if server.connection == nil {
+                Notice(server.isRunning ? "Kapitsa is starting. You can chat once it's ready."
                        : "Start Kapitsa to chat with your model.", symbol: "info.circle")
             }
             if let exportError { Notice(exportError, symbol: "exclamationmark.triangle", isError: true) }
@@ -55,7 +69,7 @@ struct ChatPage: View {
                         .font(.callout).foregroundStyle(.secondary)
                     Spacer(minLength: 8)
                     Button("Continue in a New Chat", action: continueInNewChat)
-                        .disabled(controller.chatConnection == nil || chat.isStreaming)
+                        .disabled(server.connection == nil || chat.isStreaming)
                 }
                 .padding(.horizontal, 12).padding(.vertical, 8)
                 .background(KapitsaTheme.panel, in: RoundedRectangle(cornerRadius: 10))
@@ -97,15 +111,15 @@ struct ChatPage: View {
 
     /// Offered once the chat fills three quarters of the context, until it has been continued.
     private var showsContinueBanner: Bool {
-        guard chat.continuedIn == nil, let context = controller.engine.contextTokens, context > 0,
+        guard chat.continuedIn == nil, let context = server.contextTokens, context > 0,
               let tokens = KapitsaChatOutline.conversationTokens(in: chat.messages) else { return false }
         return Double(tokens) / Double(context) >= 0.75
     }
 
     /// Summarises this chat, then opens a new chat that starts from the summary, linked both ways.
     private func continueInNewChat() {
-        guard let connection = controller.chatConnection, continueTask == nil, !chat.messages.isEmpty else { return }
-        let messages = chat.messages, contextTokens = controller.engine.contextTokens
+        guard let connection = server.connection, continueTask == nil, !chat.messages.isEmpty else { return }
+        let messages = chat.messages, contextTokens = server.contextTokens
         let name = chats.summaries.first { $0.id == chatID }?.name(nameStyle) ?? "Earlier chat"
         exportError = nil
         continueTask = Task {
@@ -247,13 +261,13 @@ struct ChatPage: View {
                 messageColumn(proxy)
                 if outlineShown && !chat.messages.isEmpty {
                     ChatOutlineView(
-                        messages: chat.messages, contextTokens: controller.engine.contextTokens,
-                        canFindTopics: controller.chatConnection != nil, topicProgress: chat.topicProgress,
+                        messages: chat.messages, contextTokens: server.contextTokens,
+                        canFindTopics: server.connection != nil, topicProgress: chat.topicProgress,
                         topicThemes: chat.topicThemes,
                         onSelect: { proxy.scrollTo($0, anchor: .top) },
                         onCollapse: { chat.setOutlineCollapsed($0, questions: $1) },
-                        onFindTopics: { if let connection = controller.chatConnection { chat.findMissingTopics(connection: connection) } },
-                        onRedoTopics: { if let connection = controller.chatConnection { chat.redoAllTopics(connection: connection) } },
+                        onFindTopics: { if let connection = server.connection { chat.findMissingTopics(connection: connection) } },
+                        onRedoTopics: { if let connection = server.connection { chat.redoAllTopics(connection: connection) } },
                         onStopFindingTopics: chat.stopFindingTopics,
                         onContinue: chat.continuedIn == nil ? continueInNewChat : nil)
                     .equatable()
@@ -293,13 +307,13 @@ struct ChatPage: View {
                         // Finished messages don't change while a reply streams; comparing them is
                         // cheap, so SwiftUI skips redrawing them on each update.
                         ChatHistory(messages: drawnMessages,
-                                    canResend: controller.chatConnection != nil && !chat.isStreaming,
+                                    canResend: server.connection != nil && !chat.isStreaming,
                                     findQuery: findShown ? findQuery : "",
                                     currentMatch: findShown ? currentMatch : nil,
                                     onExport: { id in export(KapitsaChatExport.turn(endingWith: id, in: chat.messages)) },
                                     onDelete: { turnToDelete = $0 },
                                     onResend: { id, text in
-                                        if let connection = controller.chatConnection { chat.resend(id, text: text, connection: connection) }
+                                        if let connection = server.connection { chat.resend(id, text: text, connection: connection) }
                                     },
                                     onShowVersion: { chat.showVersion($1, of: $0) })
                         .equatable()
@@ -389,7 +403,7 @@ struct ChatPage: View {
             if let error = chat.attachmentError {
                 Notice(error, symbol: "exclamationmark.triangle", isError: true)
             }
-            ChatInputRow(chat: chat, canConnect: controller.chatConnection != nil,
+            ChatInputRow(chat: chat, canConnect: server.connection != nil,
                          onAttach: chooseFiles, onSend: send)
         }
     }
@@ -402,17 +416,17 @@ struct ChatPage: View {
         panel.nameFieldStringValue = KapitsaChatExport(messages: messages).suggestedFileName
         panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
         panel.canCreateDirectories = true
-        let accessory = ExportOptionsAccessory(canSummarize: controller.chatConnection != nil)
+        let accessory = ExportOptionsAccessory(canSummarize: server.connection != nil)
         panel.accessoryView = accessory.view
         guard panel.runModal() == .OK, let url = panel.url else { return }
         accessory.remember()
         let options = accessory.options
         exportError = nil
-        guard options.includeSummary, let connection = controller.chatConnection else {
+        guard options.includeSummary, let connection = server.connection else {
             write(messages, to: url, options: options, summary: nil)
             return
         }
-        let contextTokens = controller.engine.contextTokens
+        let contextTokens = server.contextTokens
         summaryTask = Task {
             do {
                 let summary = try await KapitsaChatSummary.write(
@@ -437,7 +451,7 @@ struct ChatPage: View {
 
     /// Sends `text` with any attachments; false when nothing was sent, so the box keeps it.
     private func send(_ text: String) -> Bool {
-        guard let connection = controller.chatConnection else { return false }
+        guard let connection = server.connection else { return false }
         chat.draft = text
         guard chat.canSend else { return false }
         chat.send(to: connection)

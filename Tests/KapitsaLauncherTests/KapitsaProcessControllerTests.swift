@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import XCTest
 @testable import KapitsaLauncher
 
@@ -185,6 +186,25 @@ final class KapitsaProcessControllerTests: XCTestCase {
         XCTAssertEqual(controller.readiness, .ready)
         XCTAssertEqual(controller.status?.ready, true)
         XCTAssertEqual(controller.state, .running(processID: 100))
+    }
+
+    func testAnUnchangedStatusDoesNotRedrawWindows() {
+        let client = FakeStatusClient()
+        let controller = makeController(runProcess: { _ in 100 }, stopProcess: { _ in }, statusClient: client)
+        controller.start()
+        client.complete(.success(KapitsaStatus(status: "ok")))
+        var changes = 0
+        let watcher = controller.objectWillChange.sink { changes += 1 }
+        defer { watcher.cancel() }
+        // The once-a-second check usually returns what it did a second ago.
+        for _ in 0..<3 {
+            controller.pollStatus()
+            client.complete(.success(KapitsaStatus(status: "ok")))
+        }
+        XCTAssertEqual(changes, 0)
+        controller.pollStatus()
+        client.complete(.success(KapitsaStatus(status: "loading")))
+        XCTAssertGreaterThan(changes, 0, "a real change still redraws")
     }
 
     func testStartupStatusTimeoutIsHiddenUntilReady() {
