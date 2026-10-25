@@ -15,6 +15,8 @@ final class KapitsaChatLibrary: ObservableObject {
         var firstQuestion: String
         /// The first question's title, once the model has written it.
         var firstTitle: String?
+        /// For a chat that continues another, the other chat's name then.
+        var continues: String?
         var createdAt: Date
         var updatedAt: Date
         /// The file's modification date when this entry was made, to spot changes.
@@ -22,6 +24,7 @@ final class KapitsaChatLibrary: ObservableObject {
 
         func name(_ style: NameStyle) -> String {
             if let customName { return customName }
+            if let continues { return continues + " (continued)" }
             let automatic = style == .title ? firstTitle ?? firstQuestion : firstQuestion
             return automatic.isEmpty ? "New chat" : automatic
         }
@@ -189,16 +192,18 @@ final class KapitsaChatLibrary: ObservableObject {
         try? JSONEncoder().encode(summaries).write(to: indexURL, options: .atomic)
     }
 
-    /// Nil for a chat with no messages, which isn't listed.
+    /// Nil for a chat with no messages, which isn't listed, unless it continues another.
     static func summary(id: UUID, document: KapitsaChatStore.Document, fileDate: Date) -> Summary? {
-        guard let first = document.messages.first else { return nil }
+        let first = document.messages.first
+        guard first != nil || document.continuesFrom != nil else { return nil }
         let questionIndex = document.messages.firstIndex { $0.role == .user }
         let question = questionIndex.map { KapitsaChatOutline.question(for: document.messages[$0]) } ?? ""
         // The title is kept on the reply to the first question.
         let reply = questionIndex.flatMap { index in document.messages.dropFirst(index + 1).first { $0.role == .assistant } }
         let title = reply?.title.flatMap { $0.isEmpty ? nil : $0 }
-        let created = document.createdAt ?? first.sentAt ?? fileDate
+        let created = document.createdAt ?? first?.sentAt ?? fileDate
         return Summary(id: id, customName: document.customName, firstQuestion: question, firstTitle: title,
+                       continues: document.continuesFrom?.name,
                        createdAt: created, updatedAt: document.updatedAt ?? document.messages.last?.sentAt ?? created,
                        fileDate: fileDate)
     }

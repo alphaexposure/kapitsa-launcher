@@ -108,6 +108,32 @@ final class KapitsaChatLibraryTests: XCTestCase {
         XCTAssertEqual(groups.map(\.chats.count), [2, 1, 1, 1, 1, 1])
     }
 
+    func testAContinuedChatStartsFromTheSummaryAndLinksBothWays() {
+        let library = library()
+        let old = write(turn("I went to tie my shoe and wondered what quantum mechanics is.",
+                             title: "What is quantum mechanics?", at: Date(timeIntervalSince1970: 100)), in: library)
+        library.refresh()
+        let newID = UUID()
+        let continuation = KapitsaChatContinuation(chatID: old, name: "What is quantum mechanics?", summary: "We covered superposition.")
+        library.controller(for: newID).startContinuation(continuation)
+        library.controller(for: old).markContinued(in: newID)
+
+        // Listed straight away, before its first message, under the earlier chat's name.
+        XCTAssertEqual(library.summaries.first?.id, newID)
+        XCTAssertEqual(library.summaries.first?.name(.title), "What is quantum mechanics? (continued)")
+        let reloaded = self.library()
+        XCTAssertEqual(reloaded.controller(for: newID).continuesFrom, continuation)
+        XCTAssertEqual(reloaded.controller(for: old).continuedIn, newID)
+
+        // The model reads the summary first.
+        let body = KapitsaChatRequest.body(history: [KapitsaChatMessage(role: .user, text: "And entanglement?")],
+                                           thinking: .off, model: "m", continuing: continuation.summary)
+        let sent = body["messages"] as? [[String: Any]]
+        XCTAssertEqual(sent?.first?["role"] as? String, "system")
+        XCTAssertTrue((sent?.first?["content"] as? String)?.hasSuffix("We covered superposition.") == true)
+        XCTAssertEqual(sent?.count, 2)
+    }
+
     func testDeletingRemovesTheFileAndEntry() {
         let library = library()
         let id = write(turn("Question", at: Date()), in: library)

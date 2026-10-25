@@ -35,8 +35,8 @@ is committed, and note the commit.
 - [x] **Find and search.** ⌘F finds words in the chat with a match count and highlights;
   the Chats search box also finds chats by what was said in them, and opens a result with
   Find on those words.
-- [ ] **Continue in a new chat with a summary.** When a chat nears the context, start a new
-  chat that opens with a summary of the old one.
+- [x] **Continue in a new chat with a summary.** When a chat nears the context, a new chat
+  starts from a summary of the old one, which the model reads first; the two link both ways.
 
 ## Chat view
 

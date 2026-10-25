@@ -127,6 +127,18 @@ enum KapitsaChatVersions {
     }
 }
 
+/// A chat that carries on from another that grew too long for the model's context: the
+/// earlier chat, its name then, and a summary of it, which the model reads before the new
+/// conversation.
+struct KapitsaChatContinuation: Codable, Equatable {
+    let chatID: UUID
+    let name: String
+    let summary: String
+
+    static let instructions = "This conversation continues an earlier one that grew too long to send in full. "
+        + "Here is a summary of it; treat it as what was said before, and carry on from it."
+}
+
 /// Where the chat sends requests: the server this launcher started.
 struct KapitsaChatConnection: Equatable {
     let baseURL: URL
@@ -160,14 +172,20 @@ enum KapitsaChatRequest {
     }
 
     /// The JSON body for a streamed chat completion. Earlier reasoning is not sent back.
-    static func body(history: [KapitsaChatMessage], thinking: KapitsaThinkingLevel, model: String) -> [String: Any] {
+    /// - Parameter continuing: the summary of the earlier chat this one continues, sent first.
+    static func body(history: [KapitsaChatMessage], thinking: KapitsaThinkingLevel, model: String,
+                     continuing summary: String? = nil) -> [String: Any] {
+        var messages: [[String: Any]] = summary.map {
+            [["role": "system", "content": KapitsaChatContinuation.instructions + "\n\n" + $0]]
+        } ?? []
+        messages += history.filter { !$0.text.isEmpty || !$0.attachments.isEmpty }.map { message in
+            ["role": message.role.rawValue, "content": content(for: message)]
+        }
         var body: [String: Any] = [
             "model": model,
             "stream": true,
             "stream_options": ["include_usage": true],
-            "messages": history.filter { !$0.text.isEmpty || !$0.attachments.isEmpty }.map { message in
-                ["role": message.role.rawValue, "content": content(for: message)]
-            },
+            "messages": messages,
         ]
         body.merge(thinking.requestFields) { _, new in new }
         return body
@@ -257,6 +275,10 @@ struct KapitsaChatStore {
         var createdAt: Date?
         /// When the conversation last changed; folding the outline doesn't count.
         var updatedAt: Date?
+        /// For a chat that continues another: which one, and the summary the model starts from.
+        var continuesFrom: KapitsaChatContinuation?
+        /// For a chat that was continued: the new chat.
+        var continuedIn: UUID?
     }
 
     func load() -> [KapitsaChatMessage] { loadDocument().messages }
@@ -337,6 +359,10 @@ final class KapitsaChatController: ObservableObject {
     /// every chat.
     let requestLabels: KapitsaRequestLabels
     private(set) var customName: String?
+    /// The earlier chat this one continues, with its summary.
+    @Published private(set) var continuesFrom: KapitsaChatContinuation?
+    /// The new chat this one was continued in.
+    @Published private(set) var continuedIn: UUID?
     private var createdAt: Date?
     private var updatedAt: Date?
     /// Called after each save, so the chat list can follow names and dates.
@@ -365,8 +391,11 @@ final class KapitsaChatController: ObservableObject {
         self.messages = document.messages
         self.topicThemes = document.topicThemes
         self.customName = document.customName
+        self.continuesFrom = document.continuesFrom
+        self.continuedIn = document.continuedIn
         self.createdAt = document.createdAt
-        self.updatedAt = document.updatedAt
+        // A file from before chats kept dates: its last message is when it was last used.
+        self.updatedAt = document.updatedAt ?? document.messages.last?.sentAt
         self.thinking = defaults.string(forKey: Self.thinkingKey).flatMap(KapitsaThinkingLevel.init) ?? .xhigh
     }
 
@@ -428,7 +457,8 @@ final class KapitsaChatController: ObservableObject {
         do {
             request = try KapitsaChatRequest.urlRequest(
                 connection: connection,
-                body: KapitsaChatRequest.body(history: messages, thinking: thinking, model: connection.model))
+                body: KapitsaChatRequest.body(history: messages, thinking: thinking, model: connection.model,
+                                              continuing: continuesFrom?.summary))
         } catch {
             finish(replyID: reply.id, outcome: Outcome(errorMessage: error.localizedDescription), connection: connection)
             return
@@ -449,13 +479,28 @@ final class KapitsaChatController: ObservableObject {
     /// Writes the chat. A new chat has no file until its first message. `touch` marks the
     /// conversation as changed, which orders the chat list.
     private func save(touch: Bool = true) {
-        guard let store, !(messages.isEmpty && createdAt == nil && !store.exists) else { return }
+        // A continuation is kept from the start, so its summary isn't lost before the first message.
+        guard let store, !(messages.isEmpty && continuesFrom == nil && createdAt == nil && !store.exists) else { return }
         if createdAt == nil { createdAt = messages.first?.sentAt ?? now() }
         if touch || updatedAt == nil { updatedAt = now() }
         let document = KapitsaChatStore.Document(messages: messages, topicThemes: topicThemes, customName: customName,
-                                                 createdAt: createdAt, updatedAt: updatedAt)
+                                                 createdAt: createdAt, updatedAt: updatedAt,
+                                                 continuesFrom: continuesFrom, continuedIn: continuedIn)
         store.save(document)
         onSave?(document)
+    }
+
+    /// Makes this new, empty chat carry on from another, starting from its summary.
+    func startContinuation(_ continuation: KapitsaChatContinuation) {
+        guard messages.isEmpty else { return }
+        continuesFrom = continuation
+        save()
+    }
+
+    /// Notes the new chat this one was continued in.
+    func markContinued(in chatID: UUID) {
+        continuedIn = chatID
+        save(touch: false)
     }
 
     /// Names the chat; nil or blank goes back to the automatic name.

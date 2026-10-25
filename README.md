@@ -88,6 +88,10 @@ A native macOS app for starting, stopping and monitoring a local
     arrow under a reply asks again for a new reply. Either way the conversation from that
     question on becomes a new version, and **‹ 2 / 3 ›** under the question switches between
     versions. Only the version shown is sent to the model, indexed and exported.
+  - **Continue in a new chat:** once a chat fills three quarters of the model's context, a
+    banner (and a link under the token count, any time) starts a new chat from a summary of
+    this one. The model reads the summary before the new conversation; the new chat shows it
+    with a link back, and the old chat links forward.
   - **Find (⌘F):** finds words in the chat, ignoring case and accents, with highlights, a
     match count and ⌘G / ⇧⌘G or Return to step through them. A chat opened from a search starts
     with Find on the searched words.

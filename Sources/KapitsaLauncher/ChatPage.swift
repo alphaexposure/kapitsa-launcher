@@ -25,6 +25,9 @@ struct ChatPage: View {
     @State private var turnToDelete: UUID?
     /// The summary being written for an export, shown in a sheet that can cancel it.
     @State private var summaryTask: Task<Void, Never>?
+    /// The summary being written to continue this chat in a new one.
+    @State private var continueTask: Task<Void, Never>?
+    @AppStorage(KapitsaChatLibrary.nameStyleKey) private var nameStyle = KapitsaChatLibrary.NameStyle.title
     @AppStorage("chatOutlineShown") private var outlineShown = true
     @AppStorage("chatListShown") private var chatListShown = true
     @AppStorage("chatAutoScroll") private var autoScroll = true
@@ -39,6 +42,19 @@ struct ChatPage: View {
             }
             if let exportError { Notice(exportError, symbol: "exclamationmark.triangle", isError: true) }
             conversation
+            if showsContinueBanner {
+                HStack(spacing: 10) {
+                    Image(systemName: "gauge.with.dots.needle.67percent").foregroundStyle(.orange)
+                    Text("This chat is using most of the model's context. Continue in a new chat that starts from a summary of this one.")
+                        .font(.callout).foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+                    Button("Continue in a New Chat", action: continueInNewChat)
+                        .disabled(controller.chatConnection == nil || chat.isStreaming)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .background(KapitsaTheme.panel, in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(KapitsaTheme.border, lineWidth: 1))
+            }
             composer
         }
         .onDrop(of: [.fileURL, .image], isTargeted: $isDropTargeted, perform: handleDrop)
@@ -53,20 +69,55 @@ struct ChatPage: View {
                  + (turnHasOtherVersions ? " The question's other versions are deleted too." : "")
                  + " This can't be undone.")
         }
-        .sheet(isPresented: Binding(get: { summaryTask != nil }, set: { _ in })) {
+        .sheet(isPresented: Binding(get: { summaryTask != nil || continueTask != nil }, set: { _ in })) {
             VStack(spacing: 14) {
                 ProgressView()
-                Text("Kapitsa is writing the summary…").font(.headline)
+                Text(continueTask != nil ? "Kapitsa is summarising this chat for the new one…" : "Kapitsa is writing the summary…")
+                    .font(.headline)
                 Text("Thinking is off, so this usually takes a few seconds; a long chat is summarised in parts.")
                     .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 Button("Cancel") {
                     summaryTask?.cancel()
                     summaryTask = nil
+                    continueTask?.cancel()
+                    continueTask = nil
                 }
                 .keyboardShortcut(.cancelAction)
             }
             .padding(24)
             .frame(width: 340)
+        }
+    }
+
+    /// Offered once the chat fills three quarters of the context, until it has been continued.
+    private var showsContinueBanner: Bool {
+        guard chat.continuedIn == nil, let context = controller.engine.contextTokens, context > 0,
+              let tokens = KapitsaChatOutline.conversationTokens(in: chat.messages) else { return false }
+        return Double(tokens) / Double(context) >= 0.75
+    }
+
+    /// Summarises this chat, then opens a new chat that starts from the summary, linked both ways.
+    private func continueInNewChat() {
+        guard let connection = controller.chatConnection, continueTask == nil, !chat.messages.isEmpty else { return }
+        let messages = chat.messages, contextTokens = controller.engine.contextTokens
+        let name = chats.summaries.first { $0.id == chatID }?.name(nameStyle) ?? "Earlier chat"
+        exportError = nil
+        continueTask = Task {
+            do {
+                let summary = try await KapitsaChatSummary.write(
+                    for: messages, connection: connection, contextTokens: contextTokens,
+                    send: chat.requestLabels.labelling(KapitsaChatSummary.urlSessionSend, as: .summary))
+                guard !Task.isCancelled else { return }
+                let newID = UUID()
+                chats.controller(for: newID).startContinuation(
+                    KapitsaChatContinuation(chatID: chatID, name: name, summary: summary.text))
+                chat.markContinued(in: newID)
+                continueTask = nil
+                onSelectChat(newID)
+            } catch {
+                if !Task.isCancelled { exportError = error.localizedDescription }
+                continueTask = nil
+            }
         }
     }
 
@@ -190,7 +241,10 @@ struct ChatPage: View {
                     // a blank view until the next scroll. Finished messages aren't redrawn while
                     // a reply streams, so measuring them all costs little.
                     VStack(alignment: .leading, spacing: 18) {
-                        if chat.messages.isEmpty && chat.liveReply == nil {
+                        if let continuation = chat.continuesFrom {
+                            ContinuationCard(continuation: continuation, onOpen: { onSelectChat(continuation.chatID) })
+                        }
+                        if chat.messages.isEmpty && chat.liveReply == nil && chat.continuesFrom == nil {
                             VStack(spacing: 10) {
                                 KapitsaMarkShape().fill(KapitsaTheme.accent.opacity(0.5)).frame(width: 34, height: 34)
                                 Text("Ask anything. Drop images or documents here to include them.")
@@ -214,6 +268,17 @@ struct ChatPage: View {
                         if let live = chat.liveReply {
                             ChatMessageView(message: live, isLive: true, onExport: {}, onDelete: {})
                                 .id(live.id)
+                        }
+                        if let next = chat.continuedIn {
+                            HStack(spacing: 8) {
+                                Image(systemName: "arrow.turn.down.right").foregroundStyle(KapitsaTheme.accent)
+                                Text("Continued in a new chat that starts from a summary of this one.")
+                                    .font(.callout).foregroundStyle(.secondary)
+                                Button("Open") { onSelectChat(next) }
+                            }
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(KapitsaTheme.inset, in: RoundedRectangle(cornerRadius: 10))
                         }
                         Color.clear.frame(height: 1).id(endID)
                     }
@@ -255,7 +320,8 @@ struct ChatPage: View {
                         onCollapse: { chat.setOutlineCollapsed($0, questions: $1) },
                         onFindTopics: { if let connection = controller.chatConnection { chat.findMissingTopics(connection: connection) } },
                         onRedoTopics: { if let connection = controller.chatConnection { chat.redoAllTopics(connection: connection) } },
-                        onStopFindingTopics: chat.stopFindingTopics)
+                        onStopFindingTopics: chat.stopFindingTopics,
+                        onContinue: chat.continuedIn == nil ? continueInNewChat : nil)
                     .equatable()
                     .frame(width: 290)
                 }
@@ -498,6 +564,8 @@ private struct ChatOutlineView: View, Equatable {
     let onFindTopics: () -> Void
     let onRedoTopics: () -> Void
     let onStopFindingTopics: () -> Void
+    /// Continues the chat in a new one from a summary; nil once it has been continued.
+    var onContinue: (() -> Void)?
     @AppStorage("chatPanelMode") private var mode = Mode.outline
 
     static func == (lhs: ChatOutlineView, rhs: ChatOutlineView) -> Bool {
@@ -517,8 +585,16 @@ private struct ChatOutlineView: View, Equatable {
             .labelsHidden()
             .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 8)
             if let tokens = KapitsaChatOutline.conversationTokens(in: messages) {
-                ConversationSize(tokens: tokens, contextTokens: contextTokens)
-                    .padding(.horizontal, 12).padding(.bottom, 8)
+                VStack(alignment: .leading, spacing: 4) {
+                    ConversationSize(tokens: tokens, contextTokens: contextTokens)
+                    if let onContinue {
+                        Button("Continue in a new chat…", action: onContinue)
+                            .buttonStyle(.plain).font(.caption).foregroundStyle(KapitsaTheme.accent)
+                            .disabled(!canFindTopics)
+                            .help("Start a new chat that begins from a summary of this one, for when this chat nears the model's context.")
+                    }
+                }
+                .padding(.horizontal, 12).padding(.bottom, 8)
             }
             switch mode {
             case .outline: outline(entries)
@@ -822,6 +898,32 @@ private struct ChatTopicRow: View {
 }
 
 /// About how much the model reads for the next message, against its context when known.
+/// At the top of a chat that continues another: which one, a link back, and the summary the
+/// model starts from.
+private struct ContinuationCard: View {
+    let continuation: KapitsaChatContinuation
+    let onOpen: () -> Void
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.turn.up.left").foregroundStyle(KapitsaTheme.accent)
+                Text("Continues “\(continuation.name)”").font(.callout.weight(.medium))
+                Spacer()
+                Button("Open", action: onOpen).help("Open the earlier chat")
+            }
+            DisclosureGroup(isExpanded: $expanded) {
+                ChatMarkdownView(text: continuation.summary).padding(.top, 4)
+            } label: {
+                Text("The summary the model starts from").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(12)
+        .background(KapitsaTheme.inset, in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
 private struct ConversationSize: View {
     let tokens: Int
     let contextTokens: Int?
