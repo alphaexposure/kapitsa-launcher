@@ -52,6 +52,8 @@ final class KapitsaChatFindTests: XCTestCase {
         let snippet = KapitsaChatFind.hit(for: "funchal", in: long)?.snippet ?? ""
         XCTAssertTrue(snippet.hasPrefix("…") && snippet.hasSuffix("…"))
         XCTAssertTrue(snippet.contains("Funchal is mild"), "emphasis marks and line breaks are cleaned up")
+        let table = [KapitsaChatMessage(role: .assistant, text: "| City | Note |\n|------|:----:|\n| Canary Islands, Spain | Mild |")]
+        XCTAssertEqual(KapitsaChatFind.hit(for: "spain", in: table)?.snippet, "…ote Canary Islands, Spain Mild ")
     }
 }
 

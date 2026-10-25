@@ -111,8 +111,11 @@ enum KapitsaChatFind {
                 let before = text[..<first.lowerBound].suffix(40)
                 let after = text[first.upperBound...].prefix(70)
                 let line = (before.count == 40 ? "…" : "") + before + text[first] + after + (after.count == 70 ? "…" : "")
-                snippet = line.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-                    .replacingOccurrences(of: #"[*_`#|>]+"#, with: "", options: .regularExpression)
+                // Table dividers (|---|:--:|) and rules say nothing; leave them out, then the
+                // Markdown marks, and only then fold the spaces they leave behind.
+                snippet = line.replacingOccurrences(of: #"[-:|]{3,}"#, with: " ", options: .regularExpression)
+                    .replacingOccurrences(of: #"[*_`#|>]+"#, with: " ", options: .regularExpression)
+                    .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             }
         }
         return snippet.map { Hit(count: count, snippet: $0) }

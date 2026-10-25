@@ -41,6 +41,18 @@ struct ChatListView: View {
             .padding(.horizontal, 12).padding(.top, 12)
             TextField("Search chats", text: $filter)
                 .textFieldStyle(.roundedBorder).controlSize(.small)
+                .onExitCommand { filter = "" }
+                .overlay(alignment: .trailing) {
+                    if !filter.isEmpty {
+                        Button { filter = "" } label: {
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.trailing, 5)
+                        .help("Clear the search and show all chats (Esc)")
+                        .accessibilityLabel("Clear search")
+                    }
+                }
                 .padding(.horizontal, 12)
                 .help("Finds chats by name and by what was said in them. Click a result to open it with Find on those words.")
                 .task(id: query) {
