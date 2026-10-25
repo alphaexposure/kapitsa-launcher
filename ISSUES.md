@@ -32,8 +32,11 @@ is committed, and note the commit.
   their first question's title or as written. (f63d934, 877cf5a)
 - [x] **Edit and regenerate.** Edit a question or regenerate a reply; earlier versions of the
   conversation from that question on are kept and can be switched back to.
-- [ ] **Search inside chats.** The Chats filter matches names only; searching messages would
-  need the index to hold more text, or a search across the files.
+- [x] **Find and search.** ⌘F finds words in the chat with a match count and highlights;
+  the Chats search box also finds chats by what was said in them, and opens a result with
+  Find on those words.
+- [ ] **Continue in a new chat with a summary.** When a chat nears the context, start a new
+  chat that opens with a summary of the old one.
 
 ## Chat view
 
@@ -66,6 +69,19 @@ is committed, and note the commit.
 - **Selecting reply text:** each block of a reply (a paragraph, a list item, a table cell)
   selects on its own; a drag can't select across blocks. Use the reply's Copy button for
   the whole reply. This is a SwiftUI text limitation.
+
+## Coding offline
+
+- [ ] **Use with Claude Code.** A button that opens Terminal running Claude Code on the local
+  model in a folder you pick, for outages, hotspots and experiments (not a replacement for
+  Claude). The recipe is tested and kept outside this repo in `~/apps/claude-local`
+  (`Claude-Local-Kapitsa.command`, `small-model-guide.md` and notes with test results):
+  `--bare`, six tools, no MCP servers, approval mode forced to default (the user's global
+  auto mode otherwise applies), edits optionally accepted, model and context read from
+  `/v1/models`. Both the 35B and 27B passed five test tasks; the 35B is the better default.
+  Open questions: whether to ship the script with the app, and how the button runs it
+  without shell interpolation. Kapitsa also has `kapitsa claude`, which doesn't trim tools
+  or prompts.
 
 ## Porting
 

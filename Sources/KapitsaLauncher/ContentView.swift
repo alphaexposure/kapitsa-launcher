@@ -9,6 +9,8 @@ struct ContentView: View {
     @State private var page: LauncherPage = .overview
     /// The chat this window or tab shows, kept when the app relaunches; empty until chosen.
     @SceneStorage("KapitsaLauncher.chatID") private var chatID = ""
+    /// Words to open Find with in the chat just opened from a search; empty otherwise.
+    @State private var findOnOpen = ""
 
     /// This window's chat: the one it showed last, else the most recent, else a new one.
     private var currentChat: UUID {
@@ -47,7 +49,9 @@ struct ContentView: View {
         case .chat:
             // The conversation has its own scroll view, with the message box pinned below it.
             ChatPage(controller: controller, chat: chats.controller(for: currentChat), chats: chats, chatID: currentChat,
-                     onSelectChat: { chatID = $0.uuidString })
+                     onSelectChat: { chatID = $0.uuidString; findOnOpen = "" },
+                     onOpenSearchResult: { chatID = $0.uuidString; findOnOpen = $1 },
+                     initialFind: findOnOpen)
                 // A different chat starts a fresh page: its own scroll position, sheets and draft.
                 .id(currentChat)
                 .padding(.horizontal, 30)

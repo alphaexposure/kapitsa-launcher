@@ -88,6 +88,21 @@ final class KapitsaChatLibrary: ObservableObject {
         return controller
     }
 
+    /// Chats whose messages mention `query`, with a line around the first mention. Saved chats
+    /// are read off the main thread; open chats use what's on screen, which may not be saved yet.
+    func search(_ query: String) async -> [UUID: KapitsaChatFind.Hit] {
+        let open = controllers.mapValues(\.messages)
+        let files = summaries.filter { open[$0.id] == nil }.map { ($0.id, url(for: $0.id)) }
+        return await Task.detached(priority: .userInitiated) {
+            var hits: [UUID: KapitsaChatFind.Hit] = [:]
+            for (id, messages) in open { hits[id] = KapitsaChatFind.hit(for: query, in: messages) }
+            for (id, url) in files where !Task.isCancelled {
+                hits[id] = KapitsaChatFind.hit(for: query, in: KapitsaChatStore(url: url).load())
+            }
+            return hits
+        }.value
+    }
+
     func rename(_ id: UUID, to name: String?) {
         controller(for: id).rename(name)
     }

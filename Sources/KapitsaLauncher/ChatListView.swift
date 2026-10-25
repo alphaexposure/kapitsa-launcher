@@ -1,22 +1,27 @@
 import SwiftUI
 
-/// The saved chats, beside the conversation: grouped by when they were last used, filtered by
-/// name, renamed with a double-click, and deleted to the Trash.
+/// The saved chats, beside the conversation: grouped by when they were last used, searched by
+/// name and by what was said in them, renamed with a double-click, and deleted to the Trash.
 struct ChatListView: View {
     @ObservedObject var chats: KapitsaChatLibrary
     let selected: UUID
     let onSelect: (UUID) -> Void
+    /// Opens a chat found by what was said in it, with Find open on the searched words.
+    var onOpenSearchResult: (UUID, String) -> Void = { _, _ in }
     @AppStorage(KapitsaChatLibrary.nameStyleKey) private var nameStyle = KapitsaChatLibrary.NameStyle.title
     /// Kept per window, since the page starts afresh when another chat is shown.
     @SceneStorage("KapitsaLauncher.chatListFilter") private var filter = ""
+    /// Chats whose messages mention the search, found shortly after typing stops.
+    @State private var hits: [UUID: KapitsaChatFind.Hit] = [:]
     @State private var renaming: UUID?
     @State private var newName = ""
     @State private var toDelete: KapitsaChatLibrary.Summary?
     @FocusState private var renameFocused: Bool
 
     var body: some View {
-        let shown = filter.isEmpty ? chats.summaries
-            : chats.summaries.filter { $0.name(nameStyle).localizedCaseInsensitiveContains(filter) }
+        let query = filter.trimmingCharacters(in: .whitespaces)
+        let shown = query.isEmpty ? chats.summaries
+            : chats.summaries.filter { $0.name(nameStyle).localizedCaseInsensitiveContains(query) || hits[$0.id] != nil }
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Chats").font(.callout.weight(.semibold))
@@ -34,9 +39,19 @@ struct ChatListView: View {
                 .help("Name chats by a short title the model writes for the first question, or by the first question as you wrote it. A chat you rename keeps your name.")
             }
             .padding(.horizontal, 12).padding(.top, 12)
-            TextField("Filter chats", text: $filter)
+            TextField("Search chats", text: $filter)
                 .textFieldStyle(.roundedBorder).controlSize(.small)
                 .padding(.horizontal, 12)
+                .help("Finds chats by name and by what was said in them. Click a result to open it with Find on those words.")
+                .task(id: query) {
+                    hits = [:]
+                    guard !query.isEmpty else { return }
+                    // Wait for typing to stop before reading every chat.
+                    try? await Task.sleep(for: .milliseconds(250))
+                    guard !Task.isCancelled else { return }
+                    let found = await chats.search(query)
+                    if !Task.isCancelled { hits = found }
+                }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 1) {
                     ForEach(KapitsaChatLibrary.groups(shown), id: \.title) { group in
@@ -45,8 +60,8 @@ struct ChatListView: View {
                         ForEach(group.chats) { chat in row(chat) }
                     }
                     if shown.isEmpty {
-                        Text(filter.isEmpty ? "Your chats appear here once you send a message."
-                             : "No chat names match “\(filter)”.")
+                        Text(query.isEmpty ? "Your chats appear here once you send a message."
+                             : "No chats mention “\(query)”.")
                             .font(.caption).foregroundStyle(.secondary).padding(6)
                     }
                 }
@@ -69,7 +84,8 @@ struct ChatListView: View {
     @ViewBuilder
     private func row(_ chat: KapitsaChatLibrary.Summary) -> some View {
         let isSelected = chat.id == selected
-        HStack(spacing: 6) {
+        let hit = filter.trimmingCharacters(in: .whitespaces).isEmpty ? nil : hits[chat.id]
+        HStack(alignment: .top, spacing: 6) {
             if renaming == chat.id {
                 TextField("Name", text: $newName)
                     .textFieldStyle(.roundedBorder).controlSize(.small)
@@ -78,9 +94,18 @@ struct ChatListView: View {
                     .onExitCommand { renaming = nil }
                     .onChange(of: renameFocused) { if !renameFocused { finishRenaming(chat.id) } }
             } else {
-                Text(chat.name(nameStyle)).font(.callout).lineLimit(1)
-                    .foregroundStyle(isSelected ? .primary : .secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(chat.name(nameStyle)).font(.callout).lineLimit(1)
+                        .foregroundStyle(isSelected ? .primary : .secondary)
+                    if let hit {
+                        Text(hit.snippet).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                }
                 Spacer(minLength: 4)
+                if let hit {
+                    Text("\(hit.count)").font(.caption2).monospacedDigit().foregroundStyle(.secondary)
+                        .help("\(hit.count) \(hit.count == 1 ? "mention" : "mentions") in this chat")
+                }
                 if chats.streaming.contains(chat.id) {
                     ProgressView().controlSize(.mini).help("Writing a reply")
                 }
@@ -92,7 +117,10 @@ struct ChatListView: View {
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { startRenaming(chat) }
         // Alongside the double-click rather than after it, so a click selects at once.
-        .simultaneousGesture(TapGesture().onEnded { if renaming != chat.id { onSelect(chat.id) } })
+        .simultaneousGesture(TapGesture().onEnded {
+            guard renaming != chat.id else { return }
+            if hit != nil { onOpenSearchResult(chat.id, filter.trimmingCharacters(in: .whitespaces)) } else { onSelect(chat.id) }
+        })
         .help(chat.firstQuestion.isEmpty ? chat.name(nameStyle) : chat.firstQuestion)
         .contextMenu {
             Button("Rename…") { startRenaming(chat) }

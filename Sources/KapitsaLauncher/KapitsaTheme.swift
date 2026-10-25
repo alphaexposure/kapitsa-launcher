@@ -11,6 +11,8 @@ enum KapitsaTheme {
     static let panel = adaptive(light: 0xFFFFFF, dark: 0x272834)
     static let inset = adaptive(light: 0xEEF0F7, dark: 0x30313E)
     static let border = adaptive(light: 0xDFE2EE, dark: 0x3A3C4A)
+    /// Behind words found with Find, with black text on it in both appearances.
+    static let findHighlight = adaptive(light: 0xFFE27A, dark: 0xE8C547)
 
     private static func adaptive(light: UInt32, dark: UInt32) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in

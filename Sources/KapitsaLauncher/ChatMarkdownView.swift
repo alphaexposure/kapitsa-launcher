@@ -4,9 +4,12 @@ import SwiftUI
 /// Equatable on its text, so SwiftUI skips it when a message view is redrawn with the same reply.
 struct ChatMarkdownView: View, Equatable {
     let text: String
+    /// Words to highlight, from Find; empty for none.
+    var findQuery = ""
 
     var body: some View {
         ChatMarkdownBlocks(blocks: KapitsaChatMarkdown.blocks(in: text), depth: 0)
+            .environment(\.chatFindQuery, findQuery)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -20,7 +23,13 @@ struct ChatMarkdownView: View, Equatable {
     }
 }
 
+extension EnvironmentValues {
+    /// Words to highlight in a reply, from Find.
+    @Entry var chatFindQuery = ""
+}
+
 private struct ChatMarkdownBlocks: View {
+    @Environment(\.chatFindQuery) private var findQuery
     let blocks: [KapitsaChatMarkdown.Block]
     /// How deeply nested in lists, which picks the bullet.
     let depth: Int
@@ -38,11 +47,11 @@ private struct ChatMarkdownBlocks: View {
     private func view(for block: KapitsaChatMarkdown.Block, isFirst: Bool) -> some View {
         switch block {
         case let .heading(level, text):
-            Text(ChatMarkdownView.inline(text))
+            Text(KapitsaChatFind.highlighted(ChatMarkdownView.inline(text), findQuery))
                 .font(Self.font(forHeading: level))
                 .padding(.top, isFirst ? 0 : (level <= 2 ? 8 : 4))
         case let .paragraph(text):
-            Text(ChatMarkdownView.inline(text))
+            Text(KapitsaChatFind.highlighted(ChatMarkdownView.inline(text), findQuery))
                 .lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
         case let .list(list):
@@ -98,6 +107,7 @@ private struct ChatMarkdownList: View {
 
 /// A fenced code block: monospaced on an inset, scrolling sideways rather than wrapping.
 private struct ChatMarkdownCode: View {
+    @Environment(\.chatFindQuery) private var findQuery
     let language: String
     let code: String
 
@@ -111,7 +121,7 @@ private struct ChatMarkdownCode: View {
             .font(.caption).foregroundStyle(.secondary)
             .padding(.horizontal, 12).padding(.top, 7).padding(.bottom, 5)
             ScrollView(.horizontal) {
-                Text(code)
+                Text(KapitsaChatFind.highlighted(AttributedString(code), findQuery))
                     .font(.system(.callout, design: .monospaced))
                     .lineSpacing(2)
                     .fixedSize()
@@ -127,6 +137,7 @@ private struct ChatMarkdownCode: View {
 /// A table as a grid with a shaded header; wide tables scroll sideways instead of squashing.
 /// Copy puts it on the clipboard as a Markdown table, and as tab-separated text for spreadsheets.
 private struct ChatMarkdownTable: View {
+    @Environment(\.chatFindQuery) private var findQuery
     let table: KapitsaChatMarkdown.Table
 
     var body: some View {
@@ -166,7 +177,7 @@ private struct ChatMarkdownTable: View {
 
     private func cell(_ text: String, column: Int) -> some View {
         let alignment = table.alignments[column]
-        return Text(ChatMarkdownView.inline(text))
+        return Text(KapitsaChatFind.highlighted(ChatMarkdownView.inline(text), findQuery))
             .multilineTextAlignment(alignment == .center ? .center : alignment == .trailing ? .trailing : .leading)
             .lineSpacing(2)
             .padding(.horizontal, 10).padding(.vertical, 6)

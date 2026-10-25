@@ -88,8 +88,12 @@ A native macOS app for starting, stopping and monitoring a local
     arrow under a reply asks again for a new reply. Either way the conversation from that
     question on becomes a new version, and **‹ 2 / 3 ›** under the question switches between
     versions. Only the version shown is sent to the model, indexed and exported.
+  - **Find (⌘F):** finds words in the chat, ignoring case and accents, with highlights, a
+    match count and ⌘G / ⇧⌘G or Return to step through them. A chat opened from a search starts
+    with Find on the searched words.
   - **Chats:** a column of your saved chats, grouped by when you last used them (Today,
-    Yesterday, Previous 7 days and so on), with a filter. New chat starts a new chat and keeps
+    Yesterday, Previous 7 days and so on), with a search box that finds chats by name and by
+    what was said in them, showing a line around the first mention. New chat starts a new chat and keeps
     the old one. Chats are named by the short title of their first question, or by the
     question as you wrote it (the column's menu); double-click to give one a name of its own.
     Delete moves a chat to the Trash. Each window or tab shows its own chat, a reply keeps

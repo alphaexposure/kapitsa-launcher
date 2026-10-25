@@ -12,7 +12,15 @@ struct ChatPage: View {
     let chatID: UUID
     /// Shows another chat, or a new one, in this window.
     let onSelectChat: (UUID) -> Void
+    /// Shows a chat from a search in the Chats column, with Find open on the searched words.
+    var onOpenSearchResult: (UUID, String) -> Void = { _, _ in }
+    /// Words to open Find with, when the chat was opened from a search.
+    var initialFind = ""
     @State private var isDropTargeted = false
+    @State private var findShown = false
+    @State private var findQuery = ""
+    @State private var findIndex = 0
+    @FocusState private var findFocused: Bool
     @State private var exportError: String?
     @State private var turnToDelete: UUID?
     /// The summary being written for an export, shown in a sheet that can cancel it.
@@ -62,6 +70,61 @@ struct ChatPage: View {
         }
     }
 
+    private var findMatches: [KapitsaChatFind.Match] {
+        findShown ? KapitsaChatFind.matches(of: findQuery, in: chat.messages) : []
+    }
+
+    private var currentMatch: KapitsaChatFind.Match? {
+        let matches = findMatches
+        return matches.isEmpty ? nil : matches[min(findIndex, matches.count - 1)]
+    }
+
+    private func openFind() {
+        findShown = true
+        findFocused = true
+    }
+
+    /// Scrolls to match `index`, wrapping around at either end.
+    private func showMatch(_ index: Int, _ proxy: ScrollViewProxy) {
+        let matches = findMatches
+        guard !matches.isEmpty else { return }
+        findIndex = (index % matches.count + matches.count) % matches.count
+        withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(matches[findIndex].messageID, anchor: .center) }
+    }
+
+    /// Find in this chat: the words, how many matches, and buttons to step through them.
+    private func findBar(_ proxy: ScrollViewProxy) -> some View {
+        let matches = findMatches
+        return HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Find in chat", text: $findQuery)
+                .textFieldStyle(.plain)
+                .focused($findFocused)
+                .onSubmit { showMatch(findIndex + 1, proxy) }
+                .onExitCommand { findShown = false }
+                .onChange(of: findQuery) { findIndex = 0; showMatch(0, proxy) }
+            Text(findQuery.trimmingCharacters(in: .whitespaces).isEmpty ? ""
+                 : matches.isEmpty ? "No matches" : "\(min(findIndex, matches.count - 1) + 1) of \(matches.count)")
+                .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+            Group {
+                Button { showMatch(findIndex - 1, proxy) } label: { Image(systemName: "chevron.up") }
+                    .keyboardShortcut("g", modifiers: [.command, .shift])
+                    .help("Previous match (⇧⌘G)")
+                Button { showMatch(findIndex + 1, proxy) } label: { Image(systemName: "chevron.down") }
+                    .keyboardShortcut("g")
+                    .help("Next match (⌘G or Return)")
+            }
+            .buttonStyle(.borderless)
+            .disabled(matches.isEmpty)
+            Button("Done") { findShown = false }
+                .buttonStyle(.borderless)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 7)
+        .background(KapitsaTheme.panel, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(KapitsaTheme.border, lineWidth: 1))
+        .onAppear { findFocused = true }
+    }
+
     /// Whether the question of the turn about to be deleted has other versions.
     private var turnHasOtherVersions: Bool {
         guard let id = turnToDelete else { return false }
@@ -92,6 +155,10 @@ struct ChatPage: View {
             Toggle(isOn: $chatListShown) { Label("Chats", systemImage: "sidebar.left") }
                 .toggleStyle(.button)
                 .help("Chats: show or hide the list of your saved chats")
+            Button(action: openFind) { Label("Find", systemImage: "magnifyingglass") }
+                .keyboardShortcut("f")
+                .disabled(chat.messages.isEmpty)
+                .help("Find: search this chat for words (⌘F)")
             Toggle(isOn: $autoScroll) { Label("Auto-scroll", systemImage: "arrow.down.to.line") }
                 .toggleStyle(.button)
                 .help("Auto-scroll: follow the reply as it's written. Turn off to read earlier turns while the model works.")
@@ -112,9 +179,11 @@ struct ChatPage: View {
         ScrollViewReader { proxy in
             HStack(alignment: .top, spacing: 12) {
                 if chatListShown {
-                    ChatListView(chats: chats, selected: chatID, onSelect: onSelectChat)
+                    ChatListView(chats: chats, selected: chatID, onSelect: onSelectChat, onOpenSearchResult: onOpenSearchResult)
                         .frame(width: 220)
                 }
+                VStack(spacing: 8) {
+                if findShown { findBar(proxy) }
                 ScrollView {
                     // Not lazy: a lazy stack guesses the height of messages it hasn't drawn, so
                     // jumping to the end past long replies could land below the content and show
@@ -133,6 +202,8 @@ struct ChatPage: View {
                         // cheap, so SwiftUI skips redrawing them on each update.
                         ChatHistory(messages: chat.messages,
                                     canResend: controller.chatConnection != nil && !chat.isStreaming,
+                                    findQuery: findShown ? findQuery : "",
+                                    currentMatch: findShown ? currentMatch?.messageID : nil,
                                     onExport: { id in export(KapitsaChatExport.turn(endingWith: id, in: chat.messages)) },
                                     onDelete: { turnToDelete = $0 },
                                     onResend: { id, text in
@@ -161,6 +232,20 @@ struct ChatPage: View {
                     if autoScroll { proxy.scrollTo(endID, anchor: .bottom) }
                 }
                 .onChange(of: autoScroll) { if autoScroll { proxy.scrollTo(endID, anchor: .bottom) } }
+                }
+                .onAppear {
+                    guard !initialFind.isEmpty else { return }
+                    findQuery = initialFind
+                    findShown = true
+                    // After the conversation's own jump to the end.
+                    DispatchQueue.main.async { showMatch(0, proxy) }
+                }
+                // A search result for the chat already shown.
+                .onChange(of: initialFind) {
+                    guard !initialFind.isEmpty else { return }
+                    findQuery = initialFind
+                    findShown = true
+                }
                 if outlineShown && !chat.messages.isEmpty {
                     ChatOutlineView(
                         messages: chat.messages, contextTokens: controller.engine.contextTokens,
@@ -291,6 +376,9 @@ private struct ChatHistory: View, Equatable {
     let messages: [KapitsaChatMessage]
     /// False while a reply streams or Kapitsa isn't running.
     let canResend: Bool
+    /// Words to highlight, from Find, and the message holding the current match.
+    let findQuery: String
+    let currentMatch: UUID?
     let onExport: (UUID) -> Void
     let onDelete: (UUID) -> Void
     /// A question's ID and the text to send it with: edited, or unchanged to regenerate.
@@ -299,16 +387,22 @@ private struct ChatHistory: View, Equatable {
 
     static func == (lhs: ChatHistory, rhs: ChatHistory) -> Bool {
         lhs.messages == rhs.messages && lhs.canResend == rhs.canResend
+            && lhs.findQuery == rhs.findQuery && lhs.currentMatch == rhs.currentMatch
     }
 
     var body: some View {
         ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
             let question = index > 0 && messages[index - 1].role == .user ? messages[index - 1] : nil
             ChatMessageView(message: message, isLive: false, canResend: canResend,
+                            findQuery: findQuery,
                             onExport: { onExport(message.id) }, onDelete: { onDelete(message.id) },
                             onResend: { onResend(message.id, $0) },
                             onRegenerate: question.map { question in { onResend(question.id, question.text) } },
                             onShowVersion: { onShowVersion(message.id, $0) })
+                // The message holding the match Find is on.
+                .padding(currentMatch == message.id ? 6 : 0)
+                .background(currentMatch == message.id ? KapitsaTheme.accent.opacity(0.1) : .clear,
+                            in: RoundedRectangle(cornerRadius: 10))
                 .id(message.id)
         }
     }
@@ -828,6 +922,7 @@ private struct ChatMessageView: View {
     let message: KapitsaChatMessage
     let isLive: Bool
     var canResend = false
+    var findQuery = ""
     let onExport: () -> Void
     let onDelete: () -> Void
     var onResend: (String) -> Void = { _ in }
@@ -851,7 +946,7 @@ private struct ChatMessageView: View {
                         editor
                     } else {
                         if !message.text.isEmpty {
-                            Text(message.text)
+                            Text(KapitsaChatFind.highlighted(AttributedString(message.text), findQuery))
                                 .textSelection(.enabled)
                                 .padding(.horizontal, 14).padding(.vertical, 10)
                                 .background(KapitsaTheme.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 14))
@@ -866,7 +961,7 @@ private struct ChatMessageView: View {
                     ReasoningView(message: message, isLive: isLive)
                 }
                 if !message.text.isEmpty {
-                    ChatMarkdownView(text: message.text)
+                    ChatMarkdownView(text: message.text, findQuery: findQuery)
                 } else if isLive && message.thinking == .off {
                     ProgressView().controlSize(.small)
                 }
