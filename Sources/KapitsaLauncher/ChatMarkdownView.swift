@@ -194,7 +194,9 @@ private struct ChatMarkdownCopyButton: View {
     let accessibilityLabel: String
 
     var body: some View {
-        CopyButton(text: text, help: help, otherTypes: otherTypes) { copied in
+        // Without Find's mark on the current match.
+        CopyButton(text: KapitsaChatFind.unmarked(text), help: help,
+                   otherTypes: otherTypes.mapValues(KapitsaChatFind.unmarked)) { copied in
             Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
         }
         .buttonStyle(.plain)

@@ -26,6 +26,21 @@ final class KapitsaChatFindTests: XCTestCase {
         XCTAssertEqual(KapitsaChatFind.highlighted(rendered, ""), rendered)
     }
 
+    func testTheCurrentMatchIsMarkedApartAndCopiesStayClean() {
+        let text = messages[1].text // "**Malaga** stays mild; malaga's winters average 17°C."
+        let marked = KapitsaChatFind.markingCurrent(text, "malaga", occurrence: 1)
+        XCTAssertEqual(KapitsaChatFind.unmarked(marked), text)
+        let drawn = KapitsaChatFind.highlighted(ChatMarkdownView.inline(marked), "malaga")
+        XCTAssertEqual(String(drawn.characters), "Malaga stays mild; malaga's winters average 17°C.", "the marks aren't drawn")
+        let runs = drawn.runs.filter { $0.backgroundColor != nil }
+        XCTAssertEqual(runs.map { String(drawn[$0.range].characters) }, ["Malaga", "malaga"])
+        XCTAssertEqual(runs.map(\.backgroundColor), [KapitsaTheme.findHighlight, KapitsaTheme.findCurrent])
+        // Positions run from the start of a message to its end, for scrolling near the word.
+        let positions = KapitsaChatFind.matches(of: "malaga", in: [messages[1]]).map(\.position)
+        XCTAssertEqual(positions.first, 2.0 / Double(text.utf16.count))
+        XCTAssertGreaterThan(positions[1], 0.3)
+    }
+
     func testAHitCountsMentionsAndShowsTheFirstOnOneLine() {
         let hit = KapitsaChatFind.hit(for: "malaga", in: messages)
         XCTAssertEqual(hit?.count, 3)

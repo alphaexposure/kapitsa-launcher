@@ -9,7 +9,14 @@ enum KapitsaChatFind {
         let messageID: UUID
         /// Which match within that message, from 0.
         let occurrence: Int
+        /// Where the match sits in the message, from 0 (start) to 1 (end), to scroll near it.
+        var position: Double = 0
     }
+
+    /// Wrap the current match in the text before it's drawn, so it can be told apart from the
+    /// others after Markdown has been applied. Private-use characters, never in a reply.
+    static let currentStart: Character = "\u{E000}"
+    static let currentEnd: Character = "\u{E001}"
 
     static let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
 
@@ -18,7 +25,11 @@ enum KapitsaChatFind {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return [] }
         return messages.flatMap { message in
-            ranges(of: query, in: message.text).indices.map { Match(messageID: message.id, occurrence: $0) }
+            let length = Double(max(message.text.utf16.count, 1))
+            return ranges(of: query, in: message.text).enumerated().map { index, range in
+                Match(messageID: message.id, occurrence: index,
+                      position: Double(range.lowerBound.utf16Offset(in: message.text)) / length)
+            }
         }
     }
 
@@ -33,19 +44,42 @@ enum KapitsaChatFind {
         return ranges
     }
 
-    /// `text` with every match of `query` marked, for drawing.
+    /// `text` with match `occurrence` of `query` wrapped in the current-match markers.
+    static func markingCurrent(_ text: String, _ query: String, occurrence: Int?) -> String {
+        guard let occurrence else { return text }
+        let found = ranges(of: query.trimmingCharacters(in: .whitespacesAndNewlines), in: text)
+        guard found.indices.contains(occurrence) else { return text }
+        let range = found[occurrence]
+        return String(text[..<range.lowerBound]) + String(currentStart) + text[range]
+            + String(currentEnd) + text[range.upperBound...]
+    }
+
+    static func unmarked(_ text: String) -> String {
+        text.filter { $0 != currentStart && $0 != currentEnd }
+    }
+
+    /// `text` with every match of `query` marked, for drawing, and the current match (between
+    /// the markers, which are removed) marked more strongly.
     static func highlighted(_ text: AttributedString, _ query: String) -> AttributedString {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return text }
         var text = text
+        // Where the current match starts, once the markers are taken out.
+        var current: Int?
+        if let start = text.characters.firstIndex(of: currentStart) {
+            current = text.characters.distance(from: text.startIndex, to: start)
+            text.characters.remove(at: start)
+        }
+        if let end = text.characters.firstIndex(of: currentEnd) { text.characters.remove(at: end) }
         let plain = String(text.characters)
         for range in ranges(of: query, in: plain) {
             let lower = plain.distance(from: plain.startIndex, to: range.lowerBound)
             let length = plain.distance(from: range.lowerBound, to: range.upperBound)
             let start = text.characters.index(text.startIndex, offsetBy: lower)
             let end = text.characters.index(start, offsetBy: length)
-            text[start..<end].backgroundColor = KapitsaTheme.findHighlight
-            text[start..<end].foregroundColor = .black
+            let isCurrent = current == lower
+            text[start..<end].backgroundColor = isCurrent ? KapitsaTheme.findCurrent : KapitsaTheme.findHighlight
+            text[start..<end].foregroundColor = isCurrent ? .white : .black
         }
         return text
     }

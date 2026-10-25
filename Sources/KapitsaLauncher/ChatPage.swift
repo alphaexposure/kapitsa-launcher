@@ -140,7 +140,11 @@ struct ChatPage: View {
         let matches = findMatches
         guard !matches.isEmpty else { return }
         findIndex = (index % matches.count + matches.count) % matches.count
-        withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(matches[findIndex].messageID, anchor: .center) }
+        // Line up the point of the message where the match sits with the same point of the view,
+        // so the word is in view, and the next match in the same message moves the view only a little.
+        let match = matches[findIndex]
+        let anchor = UnitPoint(x: 0.5, y: min(max(match.position, 0.1), 0.9))
+        withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo(match.messageID, anchor: anchor) }
     }
 
     /// Find in this chat: the words, how many matches, and buttons to step through them.
@@ -257,7 +261,7 @@ struct ChatPage: View {
                         ChatHistory(messages: chat.messages,
                                     canResend: controller.chatConnection != nil && !chat.isStreaming,
                                     findQuery: findShown ? findQuery : "",
-                                    currentMatch: findShown ? currentMatch?.messageID : nil,
+                                    currentMatch: findShown ? currentMatch : nil,
                                     onExport: { id in export(KapitsaChatExport.turn(endingWith: id, in: chat.messages)) },
                                     onDelete: { turnToDelete = $0 },
                                     onResend: { id, text in
@@ -442,9 +446,9 @@ private struct ChatHistory: View, Equatable {
     let messages: [KapitsaChatMessage]
     /// False while a reply streams or Kapitsa isn't running.
     let canResend: Bool
-    /// Words to highlight, from Find, and the message holding the current match.
+    /// Words to highlight, from Find, and the match Find is on.
     let findQuery: String
-    let currentMatch: UUID?
+    let currentMatch: KapitsaChatFind.Match?
     let onExport: (UUID) -> Void
     let onDelete: (UUID) -> Void
     /// A question's ID and the text to send it with: edited, or unchanged to regenerate.
@@ -461,14 +465,13 @@ private struct ChatHistory: View, Equatable {
             let question = index > 0 && messages[index - 1].role == .user ? messages[index - 1] : nil
             ChatMessageView(message: message, isLive: false, canResend: canResend,
                             findQuery: findQuery,
+                            currentOccurrence: currentMatch?.messageID == message.id ? currentMatch?.occurrence : nil,
                             onExport: { onExport(message.id) }, onDelete: { onDelete(message.id) },
                             onResend: { onResend(message.id, $0) },
                             onRegenerate: question.map { question in { onResend(question.id, question.text) } },
                             onShowVersion: { onShowVersion(message.id, $0) })
-                // The message holding the match Find is on.
-                .padding(currentMatch == message.id ? 6 : 0)
-                .background(currentMatch == message.id ? KapitsaTheme.accent.opacity(0.1) : .clear,
-                            in: RoundedRectangle(cornerRadius: 10))
+                // Stepping through Find's matches redraws only the messages whose marks change.
+                .equatable()
                 .id(message.id)
         }
     }
@@ -1020,11 +1023,13 @@ private struct ChatOutlineRow: View {
 }
 
 /// One message: the user's on the right, the model's on the left with its reasoning above.
-private struct ChatMessageView: View {
+private struct ChatMessageView: View, Equatable {
     let message: KapitsaChatMessage
     let isLive: Bool
     var canResend = false
     var findQuery = ""
+    /// Which match of `findQuery` in this message Find is on, if any.
+    var currentOccurrence: Int?
     let onExport: () -> Void
     let onDelete: () -> Void
     var onResend: (String) -> Void = { _ in }
@@ -1033,6 +1038,17 @@ private struct ChatMessageView: View {
     var onShowVersion: (Int) -> Void = { _ in }
     @State private var editing = false
     @State private var editedText = ""
+
+    /// Only what's drawn; the callbacks don't change what a message shows.
+    static func == (lhs: ChatMessageView, rhs: ChatMessageView) -> Bool {
+        lhs.message == rhs.message && lhs.isLive == rhs.isLive && lhs.canResend == rhs.canResend
+            && lhs.findQuery == rhs.findQuery && lhs.currentOccurrence == rhs.currentOccurrence
+    }
+
+    /// The text with Find's current match marked, for drawing; copies use `message.text`.
+    private var shownText: String {
+        KapitsaChatFind.markingCurrent(message.text, findQuery, occurrence: currentOccurrence)
+    }
 
     var body: some View {
         if message.role == .user {
@@ -1048,7 +1064,7 @@ private struct ChatMessageView: View {
                         editor
                     } else {
                         if !message.text.isEmpty {
-                            Text(KapitsaChatFind.highlighted(AttributedString(message.text), findQuery))
+                            Text(KapitsaChatFind.highlighted(AttributedString(shownText), findQuery))
                                 .textSelection(.enabled)
                                 .padding(.horizontal, 14).padding(.vertical, 10)
                                 .background(KapitsaTheme.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 14))
@@ -1063,7 +1079,7 @@ private struct ChatMessageView: View {
                     ReasoningView(message: message, isLive: isLive)
                 }
                 if !message.text.isEmpty {
-                    ChatMarkdownView(text: message.text, findQuery: findQuery)
+                    ChatMarkdownView(text: shownText, findQuery: findQuery)
                 } else if isLive && message.thinking == .off {
                     ProgressView().controlSize(.small)
                 }

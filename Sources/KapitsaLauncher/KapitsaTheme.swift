@@ -13,6 +13,8 @@ enum KapitsaTheme {
     static let border = adaptive(light: 0xDFE2EE, dark: 0x3A3C4A)
     /// Behind words found with Find, with black text on it in both appearances.
     static let findHighlight = adaptive(light: 0xFFE27A, dark: 0xE8C547)
+    /// Behind the match Find is on, with white text: unmistakable among the other matches.
+    static let findCurrent = adaptive(light: 0xE8590C, dark: 0xF06A1D)
 
     private static func adaptive(light: UInt32, dark: UInt32) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in
