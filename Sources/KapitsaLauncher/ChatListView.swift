@@ -133,6 +133,10 @@ struct ChatListView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        // VoiceOver and other assistive tools open a chat as a click would.
+        .accessibilityAction {
+            if hit != nil { onOpenSearchResult(chat.id, filter.trimmingCharacters(in: .whitespaces)) } else { onSelect(chat.id) }
+        }
     }
 
     private func startRenaming(_ chat: KapitsaChatLibrary.Summary) {
