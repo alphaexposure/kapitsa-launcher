@@ -10,6 +10,10 @@ struct ChatPage: View {
     @ObservedObject var chats: KapitsaChatLibrary
     /// The ID of `chat`, which may have no file yet.
     let chatID: UUID
+    /// The chat chosen in the Chats column, a frame ahead of `chat` while it opens.
+    var selectedChat: UUID?
+    /// Another chat was chosen and is about to be drawn.
+    var isOpening = false
     /// Shows another chat, or a new one, in this window.
     let onSelectChat: (UUID) -> Void
     /// Shows a chat from a search in the Chats column, with Find open on the searched words.
@@ -17,6 +21,8 @@ struct ChatPage: View {
     /// Words to open Find with, when the chat was opened from a search.
     var initialFind = ""
     @State private var isDropTargeted = false
+    /// Whether every message is drawn yet; see `drawnMessages`.
+    @State private var drawsAllMessages = false
     @State private var findShown = false
     @State private var findQuery = ""
     @State private var findIndex = 0
@@ -234,16 +240,44 @@ struct ChatPage: View {
         ScrollViewReader { proxy in
             HStack(alignment: .top, spacing: 12) {
                 if chatListShown {
-                    ChatListView(chats: chats, selected: chatID, onSelect: onSelectChat, onOpenSearchResult: onOpenSearchResult)
+                    ChatListView(chats: chats, selected: selectedChat ?? chatID, onSelect: onSelectChat,
+                                 onOpenSearchResult: onOpenSearchResult)
                         .frame(width: 220)
                 }
-                VStack(spacing: 8) {
-                if findShown { findBar(proxy) }
-                ScrollView {
-                    // Not lazy: a lazy stack guesses the height of messages it hasn't drawn, so
-                    // jumping to the end past long replies could land below the content and show
-                    // a blank view until the next scroll. Finished messages aren't redrawn while
-                    // a reply streams, so measuring them all costs little.
+                messageColumn(proxy)
+                if outlineShown && !chat.messages.isEmpty {
+                    ChatOutlineView(
+                        messages: chat.messages, contextTokens: controller.engine.contextTokens,
+                        canFindTopics: controller.chatConnection != nil, topicProgress: chat.topicProgress,
+                        topicThemes: chat.topicThemes,
+                        onSelect: { proxy.scrollTo($0, anchor: .top) },
+                        onCollapse: { chat.setOutlineCollapsed($0, questions: $1) },
+                        onFindTopics: { if let connection = controller.chatConnection { chat.findMissingTopics(connection: connection) } },
+                        onRedoTopics: { if let connection = controller.chatConnection { chat.redoAllTopics(connection: connection) } },
+                        onStopFindingTopics: chat.stopFindingTopics,
+                        onContinue: chat.continuedIn == nil ? continueInNewChat : nil)
+                    .equatable()
+                    .frame(width: 290)
+                }
+            }
+        }
+    }
+
+    /// How much of the reply being written has arrived: cheap to compare, unlike the text.
+    private var liveLength: Int {
+        (chat.liveReply?.text.utf8.count ?? 0) + (chat.liveReply?.reasoning.utf8.count ?? 0)
+    }
+
+    /// The messages drawn: at first only the newest, where a chat opens, so a long chat shows
+    /// at once; the earlier ones follow a moment later.
+    private var drawnMessages: [KapitsaChatMessage] {
+        drawsAllMessages ? chat.messages : Array(chat.messages.suffix(Self.firstDrawn))
+    }
+
+    private static let firstDrawn = 8
+
+    /// The conversation's contents, inside its scroll view.
+    private var messages: some View {
                     VStack(alignment: .leading, spacing: 18) {
                         if let continuation = chat.continuesFrom {
                             ContinuationCard(continuation: continuation, onOpen: { onSelectChat(continuation.chatID) })
@@ -258,7 +292,7 @@ struct ChatPage: View {
                         }
                         // Finished messages don't change while a reply streams; comparing them is
                         // cheap, so SwiftUI skips redrawing them on each update.
-                        ChatHistory(messages: chat.messages,
+                        ChatHistory(messages: drawnMessages,
                                     canResend: controller.chatConnection != nil && !chat.isStreaming,
                                     findQuery: findShown ? findQuery : "",
                                     currentMatch: findShown ? currentMatch : nil,
@@ -286,18 +320,42 @@ struct ChatPage: View {
                         }
                         Color.clear.frame(height: 1).id(endID)
                     }
+    }
+
+    /// The find bar and the conversation itself, between the Chats column and the outline.
+    private func messageColumn(_ proxy: ScrollViewProxy) -> some View {
+                VStack(spacing: 8) {
+                if findShown { findBar(proxy) }
+                ScrollView {
+                    // Not lazy: a lazy stack guesses the height of messages it hasn't drawn, so
+                    // jumping to the end past long replies could land below the content and show
+                    // a blank view until the next scroll. Finished messages aren't redrawn while
+                    // a reply streams, so measuring them all costs little.
+                    messages
                     .padding(18)
                 }
                 .background(KapitsaTheme.panel, in: RoundedRectangle(cornerRadius: 14))
                 .overlay(RoundedRectangle(cornerRadius: 14)
                     .stroke(isDropTargeted ? KapitsaTheme.accent : KapitsaTheme.border, lineWidth: isDropTargeted ? 2 : 1))
-                .onAppear { proxy.scrollTo(endID, anchor: .bottom) }
+                .overlay { if isOpening { OpeningOverlay() } }
+                .onAppear {
+                    proxy.scrollTo(endID, anchor: .bottom)
+                    // A search may land on an earlier message, so it needs them all at once.
+                    guard initialFind.isEmpty, chat.messages.count > Self.firstDrawn else { drawsAllMessages = true; return }
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(50))
+                        drawsAllMessages = true
+                        // The earlier messages go in above; stay at the end.
+                        try? await Task.sleep(for: .milliseconds(10))
+                        proxy.scrollTo(endID, anchor: .bottom)
+                    }
+                }
                 // Cheap to compare: an ID and two byte lengths, not the whole conversation.
                 // Sending always shows the new question; following the reply is optional.
                 .onChange(of: chat.messages.last?.id) {
                     if autoScroll || chat.messages.last?.role == .user { proxy.scrollTo(endID, anchor: .bottom) }
                 }
-                .onChange(of: (chat.liveReply?.text.utf8.count ?? 0) + (chat.liveReply?.reasoning.utf8.count ?? 0)) {
+                .onChange(of: liveLength) {
                     if autoScroll { proxy.scrollTo(endID, anchor: .bottom) }
                 }
                 .onChange(of: autoScroll) { if autoScroll { proxy.scrollTo(endID, anchor: .bottom) } }
@@ -315,22 +373,6 @@ struct ChatPage: View {
                     findQuery = initialFind
                     findShown = true
                 }
-                if outlineShown && !chat.messages.isEmpty {
-                    ChatOutlineView(
-                        messages: chat.messages, contextTokens: controller.engine.contextTokens,
-                        canFindTopics: controller.chatConnection != nil, topicProgress: chat.topicProgress,
-                        topicThemes: chat.topicThemes,
-                        onSelect: { proxy.scrollTo($0, anchor: .top) },
-                        onCollapse: { chat.setOutlineCollapsed($0, questions: $1) },
-                        onFindTopics: { if let connection = controller.chatConnection { chat.findMissingTopics(connection: connection) } },
-                        onRedoTopics: { if let connection = controller.chatConnection { chat.redoAllTopics(connection: connection) } },
-                        onStopFindingTopics: chat.stopFindingTopics,
-                        onContinue: chat.continuedIn == nil ? continueInNewChat : nil)
-                    .equatable()
-                    .frame(width: 290)
-                }
-            }
-        }
     }
 
     private var composer: some View {
@@ -901,6 +943,20 @@ private struct ChatTopicRow: View {
 }
 
 /// About how much the model reads for the next message, against its context when known.
+/// Over the conversation while another chosen chat is about to be drawn.
+private struct OpeningOverlay: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text("Opening…").font(.callout).foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .background(.regularMaterial, in: Capsule())
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(KapitsaTheme.panel.opacity(0.6), in: RoundedRectangle(cornerRadius: 14))
+    }
+}
+
 /// At the top of a chat that continues another: which one, a link back, and the summary the
 /// model starts from.
 private struct ContinuationCard: View {

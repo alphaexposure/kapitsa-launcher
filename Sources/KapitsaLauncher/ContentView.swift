@@ -11,6 +11,9 @@ struct ContentView: View {
     @SceneStorage("KapitsaLauncher.chatID") private var chatID = ""
     /// Words to open Find with in the chat just opened from a search; empty otherwise.
     @State private var findOnOpen = ""
+    /// The chat the page draws. It follows `chatID` one frame late, so a click first shows the
+    /// chosen chat selected and "Opening…" before the new chat's messages are laid out.
+    @State private var shownChat: UUID?
 
     /// This window's chat: the one it showed last, else the most recent, else a new one.
     private var currentChat: UUID {
@@ -20,6 +23,16 @@ struct ContentView: View {
 
     /// Stands in for a window's chat until one is chosen, so it stays the same between redraws.
     private static let firstNewChat = UUID()
+
+    private func openChat(_ id: UUID, find: String = "") {
+        chatID = id.uuidString
+        findOnOpen = find
+        Task {
+            // Long enough for the selection and "Opening…" to be drawn first.
+            try? await Task.sleep(for: .milliseconds(30))
+            if chatID == id.uuidString { shownChat = id }
+        }
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -48,12 +61,14 @@ struct ContentView: View {
         case .app: scrolling { AppPage() }
         case .chat:
             // The conversation has its own scroll view, with the message box pinned below it.
-            ChatPage(controller: controller, chat: chats.controller(for: currentChat), chats: chats, chatID: currentChat,
-                     onSelectChat: { chatID = $0.uuidString; findOnOpen = "" },
-                     onOpenSearchResult: { chatID = $0.uuidString; findOnOpen = $1 },
+            let shown = shownChat ?? currentChat
+            ChatPage(controller: controller, chat: chats.controller(for: shown), chats: chats, chatID: shown,
+                     selectedChat: currentChat, isOpening: shown != currentChat,
+                     onSelectChat: { openChat($0) },
+                     onOpenSearchResult: { openChat($0, find: $1) },
                      initialFind: findOnOpen)
                 // A different chat starts a fresh page: its own scroll position, sheets and draft.
-                .id(currentChat)
+                .id(shown)
                 .padding(.horizontal, 30)
                 .padding(.bottom, 24)
                 // Wider than the other pages, so the outline adds room instead of taking it from the chat.
