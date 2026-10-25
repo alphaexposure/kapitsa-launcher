@@ -50,12 +50,17 @@ struct SettingsPage: View {
                             Text("Best model for this Mac").tag("")
                             if !installedModels.isEmpty {
                                 Section("Downloaded") {
-                                    ForEach(installedModels, id: \.self) { Text($0).tag($0) }
+                                    // The precision downloaded may not be the catalog's default, so no size here.
+                                    ForEach(installedModels, id: \.self) { name in
+                                        let model = KapitsaConfiguration.catalogModel(forDownloaded: name)
+                                        Text(model.map { "\(name) — \($0.label), \($0.architecture)" } ?? name).tag(name)
+                                    }
                                 }
                             }
                             Section("Kapitsa catalog") {
                                 ForEach(KapitsaConfiguration.catalogModels, id: \.name) { model in
-                                    Text("\(model.label) (\(model.name))").tag(model.name)
+                                    Text("\(model.label) (\(model.name)) — \(model.details(physicalMemoryGB: KapitsaConfiguration.physicalMemoryGB))")
+                                        .tag(model.name)
                                 }
                             }
                             Text("Other model…").tag(Self.customTag)

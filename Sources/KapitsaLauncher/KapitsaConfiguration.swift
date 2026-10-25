@@ -36,21 +36,54 @@ struct KapitsaConfiguration: Codable, Equatable {
         allowSwitch = value(.allowSwitch, defaults.allowSwitch)
     }
 
-    /// Short names Kapitsa 0.2 accepts for its catalog models (`kapitsa --help`).
-    static let catalogModels: [(name: String, label: String)] = [
-        ("4b", "Qwen3.5 4B"),
-        ("9b", "Qwen3.5 9B"),
-        ("27b", "Qwen3.8 27B (dense)"),
-        ("35b", "Qwen3.6 35B-A3B (MoE)"),
-        ("flash", "Qwen3.8 Flash Next"),
-        ("dory", "Nemotron Dory 4B"),
-        ("nano-4b", "Nemotron 3 Nano 4B"),
-        ("nano-9b", "Nemotron Nano 9B v2"),
-        ("lightning", "Nemotron 3.5 Lightning"),
-        ("bolt", "Nemotron 3.5 Bolt"),
-        ("super", "Nemotron 3.5 Super-VL"),
-        ("flint", "Flint"),
+    /// A model in Kapitsa's catalog: the short name it accepts, and what the menu says about it.
+    struct CatalogModel: Equatable {
+        /// The short name Kapitsa accepts, such as `35b`.
+        let name: String
+        let label: String
+        /// The name Kapitsa saves it under, which downloaded models are listed by.
+        let id: String
+        /// Dense, or mixture of experts with the parameters used per token.
+        let architecture: String
+        let precision: String
+        /// The download in GB, at the default precision.
+        let downloadGB: Double
+        /// The smallest Mac Kapitsa's documentation suggests, in GB of memory.
+        let memoryGB: Int
+
+        /// "MoE, 3B active · 4-bit · 22.1 GB · 32 GB+ Mac", and a warning on a Mac with too little memory.
+        func details(physicalMemoryGB: Int) -> String {
+            var text = "\(architecture) · \(precision) · \(downloadGB.formatted(.number.precision(.fractionLength(1)))) GB · \(memoryGB) GB+ Mac"
+            if memoryGB > physicalMemoryGB { text += " · too big for this Mac" }
+            return text
+        }
+    }
+
+    /// Kapitsa 0.2's catalog: names, architectures and download sizes from `kapitsa --help`;
+    /// the smallest Mac for each from its documentation.
+    static let catalogModels: [CatalogModel] = [
+        .init(name: "4b", label: "Qwen3.5 4B", id: "qwen3.5-4b", architecture: "Dense", precision: "4-bit", downloadGB: 4.6, memoryGB: 16),
+        .init(name: "9b", label: "Qwen3.5 9B", id: "qwen3.5-9b", architecture: "Dense", precision: "4-bit", downloadGB: 9.1, memoryGB: 16),
+        .init(name: "27b", label: "Qwen3.8 27B", id: "qwen3.8-27b", architecture: "Dense", precision: "4-bit", downloadGB: 20.2, memoryGB: 32),
+        .init(name: "35b", label: "Qwen3.6 35B-A3B", id: "qwen3.6-35b-a3b", architecture: "MoE, 3B active", precision: "4-bit", downloadGB: 22.1, memoryGB: 32),
+        .init(name: "flash", label: "Qwen3.8 Flash Next 180B-A7B", id: "qwen3.8-flash-next", architecture: "MoE, 7B active", precision: "4-bit", downloadGB: 105.9, memoryGB: 128),
+        .init(name: "dory", label: "Nemotron Dory 1.0 4B", id: "nemotron-labs-dory1.0-4b", architecture: "Looped dense", precision: "NVFP4", downloadGB: 3.2, memoryGB: 16),
+        .init(name: "nano-4b", label: "Nemotron 3 Nano 4B", id: "nemotron-3-nano-4b", architecture: "Hybrid Mamba-2", precision: "FP8", downloadGB: 5.3, memoryGB: 16),
+        .init(name: "nano-9b", label: "Nemotron Nano 9B v2", id: "nemotron-nano-9b-v2", architecture: "Hybrid Mamba-2", precision: "NVFP4", downloadGB: 7.8, memoryGB: 16),
+        .init(name: "lightning", label: "Nemotron 3.5 Lightning 30B-A3B", id: "nemotron-3.5-lightning", architecture: "MoE, 3B active", precision: "NVFP4", downloadGB: 22.9, memoryGB: 32),
+        .init(name: "bolt", label: "Nemotron 3.5 Bolt 74B-A9B", id: "nemotron-3.5-bolt", architecture: "MoE, 9B active", precision: "2-bit experts", downloadGB: 25.1, memoryGB: 32),
+        .init(name: "super", label: "Nemotron 3.5 Super-VL 120B-A12B", id: "nemotron-3.5-super-vl", architecture: "MoE, 12B active", precision: "NVFP4", downloadGB: 76.4, memoryGB: 96),
+        .init(name: "flint", label: "Recursive Flint 40B-A2.5B", id: "flint", architecture: "MoE, 2.5B active", precision: "4-bit", downloadGB: 22.6, memoryGB: 32),
     ]
+
+    /// The catalog model a downloaded one is, from its saved name such as `qwen3.8-27b:4bit`.
+    static func catalogModel(forDownloaded name: String) -> CatalogModel? {
+        let id = name.split(separator: ":").first.map(String.init) ?? name
+        return catalogModels.first { $0.id == id }
+    }
+
+    /// This Mac's memory in GB, as Apple counts it (32 for a 32 GB Mac).
+    static var physicalMemoryGB: Int { Int(ProcessInfo.processInfo.physicalMemory >> 30) }
 
     /// Whether the server only listens on this Mac.
     var isLocalHost: Bool { ["127.0.0.1", "localhost", "::1"].contains(host) }

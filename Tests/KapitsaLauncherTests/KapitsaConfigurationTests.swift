@@ -77,4 +77,14 @@ final class KapitsaConfigurationTests: XCTestCase {
         XCTAssertEqual(decoded.host, "127.0.0.1")
         XCTAssertEqual(decoded.dflash, "auto")
     }
+
+    func testCatalogMenuDescribesEachModelAndWarnsWhenItIsTooBig() throws {
+        let model = try XCTUnwrap(KapitsaConfiguration.catalogModels.first { $0.name == "35b" })
+        XCTAssertEqual(model.details(physicalMemoryGB: 32), "MoE, 3B active · 4-bit · 22.1 GB · 32 GB+ Mac")
+        let flash = try XCTUnwrap(KapitsaConfiguration.catalogModels.first { $0.name == "flash" })
+        XCTAssertTrue(flash.details(physicalMemoryGB: 32).hasSuffix("· too big for this Mac"))
+        XCTAssertEqual(KapitsaConfiguration.catalogModel(forDownloaded: "qwen3.8-27b:4bit")?.name, "27b")
+        XCTAssertNil(KapitsaConfiguration.catalogModel(forDownloaded: "someone/custom-model"))
+        XCTAssertEqual(Set(KapitsaConfiguration.catalogModels.map(\.name)).count, KapitsaConfiguration.catalogModels.count)
+    }
 }
