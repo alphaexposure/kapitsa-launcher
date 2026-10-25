@@ -127,7 +127,7 @@ final class KapitsaChatLibraryTests: XCTestCase {
 
         // The model reads the summary first.
         let body = KapitsaChatRequest.body(history: [KapitsaChatMessage(role: .user, text: "And entanglement?")],
-                                           thinking: .off, model: "m", continuing: continuation.summary)
+                                           thinking: .off, model: "m", continuing: continuation)
         let sent = body["messages"] as? [[String: Any]]
         XCTAssertEqual(sent?.first?["role"] as? String, "system")
         XCTAssertTrue((sent?.first?["content"] as? String)?.hasSuffix("We covered superposition.") == true)

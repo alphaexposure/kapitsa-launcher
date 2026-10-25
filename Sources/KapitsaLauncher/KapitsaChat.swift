@@ -86,6 +86,9 @@ struct KapitsaChatMessage: Codable, Equatable, Identifiable {
     var otherVersions: [[KapitsaChatMessage]]?
     /// For a question with other versions: where the shown one sits among them all, from 0.
     var versionIndex: Int?
+    /// For a reply: side questions about it, each with its own replies. Never sent to the
+    /// model with the main conversation.
+    var tangents: [KapitsaTangent]?
 
     var versionCount: Int { (otherVersions?.count ?? 0) + 1 }
 
@@ -134,9 +137,56 @@ struct KapitsaChatContinuation: Codable, Equatable {
     let chatID: UUID
     let name: String
     let summary: String
+    /// Started from a side question rather than because the chat grew long: the summary
+    /// covers the earlier chat up to the reply the side question was about.
+    var isBranch: Bool?
 
     static let instructions = "This conversation continues an earlier one that grew too long to send in full. "
         + "Here is a summary of it; treat it as what was said before, and carry on from it."
+    static let branchInstructions = "This conversation branches off an earlier one, from a side question. "
+        + "Here is a summary of the earlier conversation up to that point; treat it as what was said before."
+
+    /// What the model reads first: the instructions, then the summary.
+    var systemPrompt: String {
+        (isBranch == true ? Self.branchInstructions : Self.instructions) + "\n\n" + summary
+    }
+}
+
+/// A side question about a reply: a short thread of its own under that reply. The model reads
+/// the conversation up to the reply, then the thread; the main conversation never includes it.
+struct KapitsaTangent: Codable, Equatable, Identifiable {
+    var id = UUID()
+    var messages: [KapitsaChatMessage] = []
+    var isCollapsed: Bool?
+    /// The new chat this side question was continued in.
+    var continuedIn: UUID?
+
+    /// Marks the first question as a side question, in what's sent only, so the model answers
+    /// it on its own rather than as the next step of the conversation.
+    static let marker = "(A side question about your last reply.)"
+}
+
+/// The side question's reply being written, kept apart from the chat controller so only the
+/// side question's thread redraws as it arrives.
+@MainActor
+final class KapitsaTangentStream: ObservableObject {
+    @Published private(set) var reply: KapitsaChatMessage?
+    private(set) var tangentID: UUID?
+
+    func start(_ reply: KapitsaChatMessage, in tangentID: UUID) {
+        self.tangentID = tangentID
+        self.reply = reply
+    }
+
+    func append(_ batch: KapitsaChatController.Batch) {
+        reply?.reasoning += batch.reasoning
+        reply?.text += batch.content
+    }
+
+    func end() {
+        reply = nil
+        tangentID = nil
+    }
 }
 
 /// Where the chat sends requests: the server this launcher started.
@@ -172,12 +222,10 @@ enum KapitsaChatRequest {
     }
 
     /// The JSON body for a streamed chat completion. Earlier reasoning is not sent back.
-    /// - Parameter continuing: the summary of the earlier chat this one continues, sent first.
+    /// - Parameter continuing: the earlier chat this one continues; its summary is sent first.
     static func body(history: [KapitsaChatMessage], thinking: KapitsaThinkingLevel, model: String,
-                     continuing summary: String? = nil) -> [String: Any] {
-        var messages: [[String: Any]] = summary.map {
-            [["role": "system", "content": KapitsaChatContinuation.instructions + "\n\n" + $0]]
-        } ?? []
+                     continuing continuation: KapitsaChatContinuation? = nil) -> [String: Any] {
+        var messages: [[String: Any]] = continuation.map { [["role": "system", "content": $0.systemPrompt]] } ?? []
         messages += history.filter { !$0.text.isEmpty || !$0.attachments.isEmpty }.map { message in
             ["role": message.role.rawValue, "content": content(for: message)]
         }
@@ -373,6 +421,12 @@ final class KapitsaChatController: ObservableObject {
     var onStreamingChange: ((Bool) -> Void)?
     private var task: Task<Void, Never>?
     private var topicTask: Task<Void, Never>?
+    private var tangentTask: Task<Void, Never>?
+    /// The side question's reply being written, if any.
+    let tangentStream = KapitsaTangentStream()
+    @Published private(set) var isTangentStreaming = false {
+        didSet { if oldValue != isTangentStreaming { onStreamingChange?(isTangentStreaming) } }
+    }
     /// The chat's takeaways, which the Review view shows.
     @Published private(set) var review: KapitsaChatReview
     /// Whether the model is writing takeaways.
@@ -412,7 +466,8 @@ final class KapitsaChatController: ObservableObject {
 
     /// The reply being written, if any.
     var streamingID: UUID? { liveReply?.id }
-    var isStreaming: Bool { liveReply != nil }
+    /// A reply or a side question's reply is being written. Kapitsa writes one at a time.
+    var isStreaming: Bool { liveReply != nil || isTangentStreaming }
 
     var canSend: Bool {
         !isStreaming && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingAttachments.isEmpty)
@@ -469,7 +524,7 @@ final class KapitsaChatController: ObservableObject {
             request = try KapitsaChatRequest.urlRequest(
                 connection: connection,
                 body: KapitsaChatRequest.body(history: messages, thinking: thinking, model: connection.model,
-                                              continuing: continuesFrom?.summary))
+                                              continuing: continuesFrom))
         } catch {
             finish(replyID: reply.id, outcome: Outcome(errorMessage: error.localizedDescription), connection: connection)
             return
@@ -485,6 +540,122 @@ final class KapitsaChatController: ObservableObject {
 
     func stop() {
         task?.cancel()
+        tangentTask?.cancel()
+    }
+
+    // MARK: Side questions
+
+    /// Asks a side question about a reply: a new thread under it, or a follow-up in `tangentID`.
+    func askTangent(about replyID: UUID, in tangentID: UUID? = nil, text: String, connection: KapitsaChatConnection) {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !isStreaming, !text.isEmpty,
+              let replyIndex = messages.firstIndex(where: { $0.id == replyID && $0.role == .assistant }) else { return }
+        var tangents = messages[replyIndex].tangents ?? []
+        let index: Int
+        if let tangentID {
+            guard let found = tangents.firstIndex(where: { $0.id == tangentID }), tangents[found].continuedIn == nil else { return }
+            index = found
+        } else {
+            tangents.append(KapitsaTangent())
+            index = tangents.count - 1
+        }
+        tangents[index].messages.append(KapitsaChatMessage(role: .user, text: text, sentAt: now()))
+        tangents[index].isCollapsed = nil
+        messages[replyIndex].tangents = tangents
+        save()
+        startTangentReply(replyID: replyID, tangentID: tangents[index].id, connection: connection)
+    }
+
+    /// What a side question sends: the conversation up to its reply, then the thread, the
+    /// first question marked as a side question.
+    static func tangentHistory(_ messages: [KapitsaChatMessage], replyID: UUID, tangent: KapitsaTangent) -> [KapitsaChatMessage] {
+        guard let replyIndex = messages.firstIndex(where: { $0.id == replyID }) else { return [] }
+        var thread = tangent.messages
+        if let first = thread.indices.first { thread[first].text = KapitsaTangent.marker + "\n\n" + thread[first].text }
+        return Array(messages[...replyIndex]) + thread
+    }
+
+    private func startTangentReply(replyID: UUID, tangentID: UUID, connection: KapitsaChatConnection) {
+        guard let tangent = tangent(tangentID, on: replyID) else { return }
+        let reply = KapitsaChatMessage(role: .assistant, text: "", thinking: thinking, model: connection.model, sentAt: now())
+        tangentStream.start(reply, in: tangentID)
+        isTangentStreaming = true
+        let request: URLRequest
+        do {
+            request = try KapitsaChatRequest.urlRequest(
+                connection: connection,
+                body: KapitsaChatRequest.body(history: Self.tangentHistory(messages, replyID: replyID, tangent: tangent),
+                                              thinking: thinking, model: connection.model, continuing: continuesFrom))
+        } catch {
+            finishTangent(replyID: replyID, outcome: Outcome(errorMessage: error.localizedDescription))
+            return
+        }
+        let streamLines = self.streamLines, now = self.now
+        tangentTask = Task.detached(priority: .userInitiated) { [weak self] in
+            let outcome = await Self.consume(request: request, streamLines: streamLines, now: now) { batch in
+                self?.tangentStream.append(batch)
+            }
+            await self?.finishTangent(replyID: replyID, outcome: outcome)
+        }
+    }
+
+    private func finishTangent(replyID: UUID, outcome: Outcome) {
+        guard var reply = tangentStream.reply, let tangentID = tangentStream.tangentID else { return }
+        reply.stats = outcome.stats
+        reply.errorMessage = outcome.errorMessage
+        reply.wasStopped = outcome.wasStopped
+        requestLabels.record(.sideQuestion, promptTokens: outcome.stats.promptTokens, outputTokens: outcome.stats.outputTokens)
+        tangentStream.end()
+        tangentTask = nil
+        isTangentStreaming = false
+        updateTangent(tangentID, on: replyID) { $0.messages.append(reply) }
+        save()
+    }
+
+    private func tangent(_ id: UUID, on replyID: UUID) -> KapitsaTangent? {
+        messages.first { $0.id == replyID }?.tangents?.first { $0.id == id }
+    }
+
+    private func updateTangent(_ id: UUID, on replyID: UUID, _ change: (inout KapitsaTangent) -> Void) {
+        guard let replyIndex = messages.firstIndex(where: { $0.id == replyID }),
+              let index = messages[replyIndex].tangents?.firstIndex(where: { $0.id == id }) else { return }
+        change(&messages[replyIndex].tangents![index])
+    }
+
+    func setTangentCollapsed(_ id: UUID, on replyID: UUID, _ collapsed: Bool) {
+        updateTangent(id, on: replyID) { $0.isCollapsed = collapsed ? true : nil }
+        save(touch: false)
+    }
+
+    func deleteTangent(_ id: UUID, on replyID: UUID) {
+        guard !(isTangentStreaming && tangentStream.tangentID == id),
+              let replyIndex = messages.firstIndex(where: { $0.id == replyID }) else { return }
+        messages[replyIndex].tangents?.removeAll { $0.id == id }
+        if messages[replyIndex].tangents?.isEmpty == true { messages[replyIndex].tangents = nil }
+        save()
+    }
+
+    /// Notes the new chat a side question was continued in.
+    func markTangentContinued(_ id: UUID, on replyID: UUID, in chatID: UUID) {
+        updateTangent(id, on: replyID) {
+            $0.continuedIn = chatID
+            $0.isCollapsed = true
+        }
+        save(touch: false)
+    }
+
+    /// Makes this new, empty chat a branch of another: it starts from a summary of the other
+    /// chat up to a reply, and the side question's thread becomes its first messages.
+    func startBranch(_ continuation: KapitsaChatContinuation, messages thread: [KapitsaChatMessage]) {
+        guard messages.isEmpty else { return }
+        continuesFrom = continuation
+        // New IDs: the thread now lives in two chats.
+        messages = thread.map { message in
+            var copy = message
+            copy.id = UUID()
+            return copy
+        }
+        save()
     }
 
     /// Writes the chat. A new chat has no file until its first message. `touch` marks the

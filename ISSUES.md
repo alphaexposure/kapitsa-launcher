@@ -9,9 +9,10 @@ is committed, and note the commit.
 - [ ] **Concept map.** The topic index drawn as a graph: concepts as nodes sized by how often
   they come up, linked when they appear in the same reply; clicking one highlights its
   questions. Build only if the index alone isn't enough.
-- [ ] **Tangents.** Ask a side question about part of a reply without derailing the main
-  conversation; from the original navigation ideas (outline, concept map, tangents,
-  takeaways).
+- [x] **Tangents.** Side questions under a reply, with follow-ups, kept out of the main
+  conversation; continued as a new chat that starts from a summary up to that reply.
+- [ ] **Side questions in exports, Find and search.** Exports, Find and the Chats search
+  read the main conversation only.
 - [x] **Remember folded outline questions.** Folds are saved with the chat in `chat.json`.
   (87c1a6c)
 - [x] **Topic index.** The first step toward the concept map: a Topics view listing each

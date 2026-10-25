@@ -141,6 +141,44 @@ struct ChatPage: View, Equatable {
         }
     }
 
+    private func handleTangentAction(_ replyID: UUID, _ action: ChatTangentAction) {
+        switch action {
+        case .collapse(let id, let collapsed): chat.setTangentCollapsed(id, on: replyID, collapsed)
+        case .delete(let id): chat.deleteTangent(id, on: replyID)
+        case .branch(let id): continueTangent(id, on: replyID)
+        case .open(let chatID): onSelectChat(chatID)
+        }
+    }
+
+    /// Summarises the chat up to the reply, then opens a new chat that starts from that summary
+    /// with the side question's thread as its first messages, linked both ways.
+    private func continueTangent(_ tangentID: UUID, on replyID: UUID) {
+        guard let connection = server.connection, continueTask == nil,
+              let replyIndex = chat.messages.firstIndex(where: { $0.id == replyID }),
+              let tangent = chat.messages[replyIndex].tangents?.first(where: { $0.id == tangentID }) else { return }
+        let messages = Array(chat.messages[...replyIndex]), contextTokens = server.contextTokens
+        let name = chats.summaries.first { $0.id == chatID }?.name(nameStyle) ?? "Earlier chat"
+        exportError = nil
+        continueTask = Task {
+            do {
+                let summary = try await KapitsaChatSummary.write(
+                    for: messages, connection: connection, contextTokens: contextTokens,
+                    send: chat.requestLabels.labelling(KapitsaChatSummary.urlSessionSend, as: .summary))
+                guard !Task.isCancelled else { return }
+                let newID = UUID()
+                chats.controller(for: newID).startBranch(
+                    KapitsaChatContinuation(chatID: chatID, name: name, summary: summary.text, isBranch: true),
+                    messages: tangent.messages)
+                chat.markTangentContinued(tangentID, on: replyID, in: newID)
+                continueTask = nil
+                onSelectChat(newID)
+            } catch {
+                if !Task.isCancelled { exportError = error.localizedDescription }
+                continueTask = nil
+            }
+        }
+    }
+
     private var findMatches: [KapitsaChatFind.Match] {
         findShown ? KapitsaChatFind.matches(of: findQuery, in: chat.messages) : []
     }
@@ -317,7 +355,14 @@ struct ChatPage: View, Equatable {
                                     onResend: { id, text in
                                         if let connection = server.connection { chat.resend(id, text: text, connection: connection) }
                                     },
-                                    onShowVersion: { chat.showVersion($1, of: $0) })
+                                    onShowVersion: { chat.showVersion($1, of: $0) },
+                                    tangentStream: chat.tangentStream,
+                                    onAskTangent: { replyID, tangentID, text in
+                                        if let connection = server.connection {
+                                            chat.askTangent(about: replyID, in: tangentID, text: text, connection: connection)
+                                        }
+                                    },
+                                    onTangentAction: handleTangentAction)
                         .equatable()
                         if let live = chat.liveReply {
                             ChatMessageView(message: live, isLive: true, onExport: {}, onDelete: {})
@@ -512,6 +557,10 @@ private struct ChatHistory: View, Equatable {
     /// A question's ID and the text to send it with: edited, or unchanged to regenerate.
     let onResend: (UUID, String) -> Void
     let onShowVersion: (UUID, Int) -> Void
+    let tangentStream: KapitsaTangentStream
+    /// A reply's ID, the side question to follow up (nil for a new one), and the text.
+    let onAskTangent: (UUID, UUID?, String) -> Void
+    let onTangentAction: (UUID, ChatTangentAction) -> Void
 
     static func == (lhs: ChatHistory, rhs: ChatHistory) -> Bool {
         lhs.messages == rhs.messages && lhs.canResend == rhs.canResend
@@ -527,7 +576,10 @@ private struct ChatHistory: View, Equatable {
                             onExport: { onExport(message.id) }, onDelete: { onDelete(message.id) },
                             onResend: { onResend(message.id, $0) },
                             onRegenerate: question.map { question in { onResend(question.id, question.text) } },
-                            onShowVersion: { onShowVersion(message.id, $0) })
+                            onShowVersion: { onShowVersion(message.id, $0) },
+                            tangentStream: tangentStream,
+                            onAskTangent: { onAskTangent(message.id, $0, $1) },
+                            onTangentAction: { onTangentAction(message.id, $0) })
                 // Stepping through Find's matches redraws only the messages whose marks change.
                 .equatable()
                 .id(message.id)
@@ -995,7 +1047,8 @@ private struct ContinuationCard: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Image(systemName: "arrow.turn.up.left").foregroundStyle(KapitsaTheme.accent)
-                Text("Continues “\(continuation.name)”").font(.callout.weight(.medium))
+                Text(continuation.isBranch == true ? "Branched from a side question in “\(continuation.name)”"
+                     : "Continues “\(continuation.name)”").font(.callout.weight(.medium))
                 Spacer()
                 Button("Open", action: onOpen).help("Open the earlier chat")
             }
@@ -1119,8 +1172,13 @@ private struct ChatMessageView: View, Equatable {
     /// Sends the question before this reply again; nil for a reply without one.
     var onRegenerate: (() -> Void)?
     var onShowVersion: (Int) -> Void = { _ in }
+    /// For a reply: its side questions' reply being written, and what to do with them.
+    var tangentStream: KapitsaTangentStream?
+    var onAskTangent: ((UUID?, String) -> Void)?
+    var onTangentAction: (ChatTangentAction) -> Void = { _ in }
     @State private var editing = false
     @State private var editedText = ""
+    @State private var askingTangent = false
 
     /// Only what's drawn; the callbacks don't change what a message shows.
     static func == (lhs: ChatMessageView, rhs: ChatMessageView) -> Bool {
@@ -1167,6 +1225,10 @@ private struct ChatMessageView: View, Equatable {
                     ProgressView().controlSize(.small)
                 }
                 footer
+                if let tangentStream, let onAskTangent, !(message.tangents ?? []).isEmpty || askingTangent {
+                    ChatTangentsView(tangents: message.tangents ?? [], canAsk: canResend, stream: tangentStream,
+                                     isAskingNew: $askingTangent, onAsk: onAskTangent, onAction: onTangentAction)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -1203,6 +1265,13 @@ private struct ChatMessageView: View, Equatable {
                     .buttonStyle(.plain)
                     .help("Save this question and reply as a Markdown file")
                     .accessibilityLabel("Export this turn as Markdown")
+                if onAskTangent != nil {
+                    Button { askingTangent = true } label: { Image(systemName: "arrow.turn.down.right") }
+                        .buttonStyle(.plain)
+                        .disabled(!canResend || message.text.isEmpty)
+                        .help("Side question: ask about this reply without adding to the main conversation")
+                        .accessibilityLabel("Ask a side question")
+                }
                 regenerateButton
                 deleteButton
             }

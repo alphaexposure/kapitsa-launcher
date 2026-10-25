@@ -203,7 +203,8 @@ final class KapitsaChatLibrary: ObservableObject {
         let title = reply?.title.flatMap { $0.isEmpty ? nil : $0 }
         let created = document.createdAt ?? first?.sentAt ?? fileDate
         return Summary(id: id, customName: document.customName, firstQuestion: question, firstTitle: title,
-                       continues: document.continuesFrom?.name,
+                       // A branch is named by its own first question, not as a continuation.
+                       continues: document.continuesFrom?.isBranch == true ? nil : document.continuesFrom?.name,
                        createdAt: created, updatedAt: document.updatedAt ?? document.messages.last?.sentAt ?? created,
                        fileDate: fileDate)
     }
