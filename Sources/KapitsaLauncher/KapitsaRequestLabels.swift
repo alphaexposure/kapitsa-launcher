@@ -7,7 +7,7 @@ import Foundation
 @MainActor
 final class KapitsaRequestLabels: ObservableObject {
     enum Kind: Equatable {
-        case chatReply, topics, themes, summary, takeaways, quiz, quizCheck
+        case chatReply, topics, themes, summary, takeaways
 
         var title: String {
             switch self {
@@ -16,8 +16,6 @@ final class KapitsaRequestLabels: ObservableObject {
             case .themes: return "Grouping topics into themes · background"
             case .summary: return "Export summary"
             case .takeaways: return "Takeaways for a chat"
-            case .quiz: return "Quiz questions"
-            case .quizCheck: return "Checking a quiz answer"
             }
         }
     }

@@ -21,10 +21,6 @@ final class KapitsaChatLibrary: ObservableObject {
         var updatedAt: Date
         /// The file's modification date when this entry was made, to spot changes.
         var fileDate: Date
-        /// When the chat's takeaways are due for another quiz.
-        var reviewDue: Date?
-
-        func isReviewDue(now: Date = Date()) -> Bool { reviewDue.map { $0 <= now } ?? false }
 
         func name(_ style: NameStyle) -> String {
             if let customName { return customName }
@@ -209,7 +205,7 @@ final class KapitsaChatLibrary: ObservableObject {
         return Summary(id: id, customName: document.customName, firstQuestion: question, firstTitle: title,
                        continues: document.continuesFrom?.name,
                        createdAt: created, updatedAt: document.updatedAt ?? document.messages.last?.sentAt ?? created,
-                       fileDate: fileDate, reviewDue: document.review?.reviewDue)
+                       fileDate: fileDate)
     }
 
     private static func sorted(_ summaries: [Summary]) -> [Summary] {

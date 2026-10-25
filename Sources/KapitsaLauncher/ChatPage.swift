@@ -270,7 +270,8 @@ struct ChatPage: View, Equatable {
                         onRedoTopics: { if let connection = server.connection { chat.redoAllTopics(connection: connection) } },
                         onStopFindingTopics: chat.stopFindingTopics,
                         onContinue: chat.continuedIn == nil ? continueInNewChat : nil,
-                        chat: chat, connection: server.connection)
+                        chat: chat, connection: server.connection,
+                        chatName: chats.summaries.first { $0.id == chatID }?.name(nameStyle) ?? "Chat")
                     .equatable()
                     .frame(width: 290)
                 }
@@ -629,12 +630,14 @@ private struct ChatOutlineView: View, Equatable {
     /// For the Review view, which follows the chat itself.
     let chat: KapitsaChatController
     let connection: KapitsaChatConnection?
+    let chatName: String
     @AppStorage("chatPanelMode") private var mode = Mode.outline
 
     static func == (lhs: ChatOutlineView, rhs: ChatOutlineView) -> Bool {
         lhs.messages == rhs.messages && lhs.contextTokens == rhs.contextTokens
             && lhs.canFindTopics == rhs.canFindTopics && lhs.topicProgress == rhs.topicProgress
             && lhs.topicThemes == rhs.topicThemes && lhs.chat === rhs.chat && lhs.connection == rhs.connection
+            && lhs.chatName == rhs.chatName
     }
 
     var body: some View {
@@ -668,8 +671,9 @@ private struct ChatOutlineView: View, Equatable {
                                onStop: onStopFindingTopics)
             case .review:
                 ChatReviewView(chat: chat, connection: connection, contextTokens: contextTokens,
-                               numbers: Dictionary(entries.map { ($0.id, $0.number) }, uniquingKeysWith: { first, _ in first }),
-                               onSelect: onSelect)
+                               questions: Dictionary(entries.map { ($0.id, (number: $0.number, title: $0.displayTitle)) },
+                                                     uniquingKeysWith: { first, _ in first }),
+                               chatName: chatName, onSelect: onSelect)
             }
         }
         .background(KapitsaTheme.panel, in: RoundedRectangle(cornerRadius: 14))

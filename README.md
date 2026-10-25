@@ -84,19 +84,13 @@ A native macOS app for starting, stopping and monitoring a local
       about 10), in two short background requests with thinking off. **Find topics** does the
       same for earlier replies; **Redo all** re-indexes the chat and regroups its themes. Filter
       the list to find a place or topic.
-    - **Review** helps you remember what a chat taught. **Make Takeaways** has the model
-      write the chat's main points, each linked to the questions it came from; edit them
-      (double-click), pin them, delete them or add your own. Once you've asked more,
-      **Update for N new** adds takeaways for just those questions; **Write Again** rewrites
-      the rest, keeping pinned ones and your own. **Quiz Me** asks up to 5 questions on them,
-      pinned ones first, each asking one thing. While you read the takeaways the quiz is
-      written ahead, only when no reply is being written, and again after you change them
-      (turn this off in the ⋯ menu). Answer in your own words and **Check** has the model
-      compare your answer with every reply the takeaway came from, accepting what any of them
-      supports, or **Show Answer** and say whether you knew it. A missed answer
-      pins its takeaway. When every question is answered, the score is kept and a review date
-      set: 3 days, doubling while you get everything right, or sooner if not. The chat is then
-      marked in the Chats list when it's time. Takeaways and results are saved with the chat.
+    - **Review** keeps what a chat taught. **Make Takeaways** has the model write the chat's
+      main points, each linked to the questions it came from; edit them (double-click), pin
+      them, delete them or add your own. Once you've asked more, **Update for N new** adds
+      takeaways for just those questions; **Write Again** rewrites the rest, keeping pinned
+      ones and your own. **Copy** puts them on the clipboard as a Markdown list; **Save As…**
+      saves a Markdown file with the chat's name and the questions each came from.
+      Takeaways are saved with the chat.
   - **Edit and regenerate:** the pencil under a question edits it and sends it again; the
     arrow under a reply asks again for a new reply. Either way the conversation from that
     question on becomes a new version, and **‹ 2 / 3 ›** under the question switches between
