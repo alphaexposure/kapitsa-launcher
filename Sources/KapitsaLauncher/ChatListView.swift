@@ -45,7 +45,8 @@ struct ChatListView: View {
                 .help("Finds chats by name and by what was said in them. Click a result to open it with Find on those words.")
                 .task(id: query) {
                     hits = [:]
-                    guard !query.isEmpty else { return }
+                    // Names match from the first letter; what was said, from two.
+                    guard KapitsaChatFind.searchable(query) != nil else { return }
                     // Wait for typing to stop before reading every chat.
                     try? await Task.sleep(for: .milliseconds(250))
                     guard !Task.isCancelled else { return }

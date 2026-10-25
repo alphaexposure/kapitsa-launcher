@@ -19,11 +19,19 @@ enum KapitsaChatFind {
     static let currentEnd: Character = "\u{E001}"
 
     static let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
+    /// Searching starts at two characters: one floods the chat with highlights, while two still
+    /// finds short terms such as "AI", "UK" or "17".
+    static let minimumLength = 2
+
+    /// The words to search for, or nil while they're too short.
+    static func searchable(_ query: String) -> String? {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return query.count >= minimumLength ? query : nil
+    }
 
     /// Every match of `query` in the messages' text, in order.
     static func matches(of query: String, in messages: [KapitsaChatMessage]) -> [Match] {
-        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return [] }
+        guard let query = searchable(query) else { return [] }
         return messages.flatMap { message in
             let length = Double(max(message.text.utf16.count, 1))
             return ranges(of: query, in: message.text).enumerated().map { index, range in
@@ -61,8 +69,7 @@ enum KapitsaChatFind {
     /// `text` with every match of `query` marked, for drawing, and the current match (between
     /// the markers, which are removed) marked more strongly.
     static func highlighted(_ text: AttributedString, _ query: String) -> AttributedString {
-        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return text }
+        guard let query = searchable(query) else { return text }
         var text = text
         // Where the current match starts, once the markers are taken out.
         var current: Int?
@@ -92,7 +99,7 @@ enum KapitsaChatFind {
 
     /// The first mention of `query` with some text either side, on one line.
     static func hit(for query: String, in messages: [KapitsaChatMessage]) -> Hit? {
-        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let query = searchable(query) else { return nil }
         var count = 0
         var snippet: String?
         for message in messages {

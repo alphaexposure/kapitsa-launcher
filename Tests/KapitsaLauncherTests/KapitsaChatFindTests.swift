@@ -15,6 +15,8 @@ final class KapitsaChatFindTests: XCTestCase {
         XCTAssertEqual(matches.map(\.messageID), [messages[0].id, messages[1].id, messages[1].id])
         XCTAssertEqual(matches.map(\.occurrence), [0, 0, 1])
         XCTAssertTrue(KapitsaChatFind.matches(of: "  ", in: messages).isEmpty)
+        XCTAssertTrue(KapitsaChatFind.matches(of: "a", in: messages).isEmpty, "one letter doesn't search yet")
+        XCTAssertEqual(KapitsaChatFind.matches(of: "17", in: messages).count, 1)
         XCTAssertTrue(KapitsaChatFind.matches(of: "Lisbon", in: messages).isEmpty)
     }
 

@@ -158,7 +158,7 @@ struct ChatPage: View {
                 .onSubmit { showMatch(findIndex + 1, proxy) }
                 .onExitCommand { findShown = false }
                 .onChange(of: findQuery) { findIndex = 0; showMatch(0, proxy) }
-            Text(findQuery.trimmingCharacters(in: .whitespaces).isEmpty ? ""
+            Text(KapitsaChatFind.searchable(findQuery) == nil ? ""
                  : matches.isEmpty ? "No matches" : "\(min(findIndex, matches.count - 1) + 1) of \(matches.count)")
                 .font(.caption).monospacedDigit().foregroundStyle(.secondary)
             Group {
