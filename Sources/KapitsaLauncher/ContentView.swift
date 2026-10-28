@@ -39,11 +39,13 @@ struct ContentView: View {
             sidebar
             Rectangle().fill(KapitsaTheme.border).frame(width: 1)
             VStack(spacing: 0) {
+                // As wide as the page below it, so the title and buttons line up with its edges.
                 pageHeader
                     .padding(.horizontal, 30)
                     .padding(.top, 30)
                     .padding(.bottom, 24)
-                    .frame(maxWidth: 1000, alignment: .leading)
+                    .frame(maxWidth: page == .chat ? 1360 : 1000, alignment: .leading)
+                    .frame(maxWidth: .infinity)
                 pageContent
             }
             .frame(maxWidth: .infinity)
@@ -144,10 +146,6 @@ struct ContentView: View {
                 .disabled(!controller.state.isRunning || controller.isStopping)
             Button { controller.restart() } label: { Label("Restart", systemImage: "arrow.clockwise") }
                 .disabled(!controller.hasExecutable)
-            Button {
-                if let url = controller.webUIURL { NSWorkspace.shared.open(url) }
-            } label: { Label("Open Web UI", systemImage: "arrow.up.right.square") }
-                .disabled(controller.webUIURL == nil)
         }
         .controlSize(.large).buttonStyle(.bordered)
         .fixedSize(horizontal: true, vertical: false)

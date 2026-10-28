@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Server status, what Kapitsa reported about its engine, token activity and the latest request.
@@ -56,6 +57,14 @@ struct OverviewPage: View {
                         if let gpu = engine?.gpu {
                             Image(systemName: "cpu").padding(.leading, 8)
                             Text(gpu)
+                        }
+                        // Kapitsa's own chat page, in the browser; the header keeps to Start, Stop and Restart.
+                        if let url = controller.webUIURL {
+                            Button { NSWorkspace.shared.open(url) } label: {
+                                Label("Open Kapitsa's web page", systemImage: "arrow.up.right.square")
+                            }
+                            .buttonStyle(.plain).foregroundStyle(KapitsaTheme.accent).padding(.leading, 8)
+                            .help("Open Kapitsa's own chat page in your browser")
                         }
                         Spacer()
                         if let pid = controller.state.processID { Text("PID \(String(pid))") }

@@ -34,7 +34,7 @@ A native macOS app for starting, stopping and monitoring a local
 
 ## Features
 
-- **Start, stop and restart** Kapitsa with one click, and open its chat page.
+- **Start, stop and restart** Kapitsa with one click, and open its own chat page from the Overview.
 - **Chat page:** a native chat with the running model.
   - Replies stream in, with the model's reasoning in a section that folds away once the
     answer starts ("Thought for 11.6 s").

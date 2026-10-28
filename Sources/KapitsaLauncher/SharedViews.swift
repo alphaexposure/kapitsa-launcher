@@ -229,3 +229,22 @@ struct MissingKapitsaNotice: View {
         }
     }
 }
+
+/// An icon button that shows or hides a panel, filled in the accent while the panel shows.
+struct KapitsaPanelToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button { configuration.isOn.toggle() } label: {
+            configuration.label
+                .labelStyle(.iconOnly)
+                .frame(width: 30, height: 22)
+                .foregroundStyle(configuration.isOn ? KapitsaTheme.onText : Color.primary)
+                .background(configuration.isOn ? KapitsaTheme.onFill : KapitsaTheme.inset, in: RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6)
+                    .stroke(configuration.isOn ? KapitsaTheme.accentFill : KapitsaTheme.border, lineWidth: 1))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(configuration.isOn ? .isSelected : [])
+        .accessibilityValue(configuration.isOn ? "Shown" : "Hidden")
+    }
+}

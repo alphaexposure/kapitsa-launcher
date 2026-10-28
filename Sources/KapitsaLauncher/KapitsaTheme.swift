@@ -11,6 +11,10 @@ enum KapitsaTheme {
     static let panel = adaptive(light: 0xFFFFFF, dark: 0x272834)
     static let inset = adaptive(light: 0xEEF0F7, dark: 0x30313E)
     static let border = adaptive(light: 0xDFE2EE, dark: 0x3A3C4A)
+    /// A button that's switched on (the Chats column, the side panel): the accent, softly
+    /// filled, in place of macOS's blue, which ignores the app's tint.
+    static let onFill = adaptive(light: 0xE1E2F8, dark: 0x3B3D66)
+    static let onText = adaptive(light: 0x3B3FA8, dark: 0xC9CCFF)
     /// Behind words found with Find, with black text on it in both appearances.
     static let findHighlight = adaptive(light: 0xFFE27A, dark: 0xE8C547)
     /// Behind the match Find is on, with white text: unmistakable among the other matches.

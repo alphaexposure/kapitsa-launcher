@@ -319,8 +319,21 @@ struct ChatPage: View, Equatable {
         }
     }
 
+    /// From the left: the Chats column's switch, the model with its thinking buttons, then
+    /// Find, New chat and a menu for the rest, and the side panel's switch at the right.
     private var toolbar: some View {
         HStack(spacing: 10) {
+            Toggle(isOn: $chatListShown) { Label("Chats", systemImage: "sidebar.left") }
+                .toggleStyle(KapitsaPanelToggleStyle())
+                .help("Chats: show or hide the list of your saved chats")
+            Divider().frame(height: 18)
+            if let model = server.thinkingModel {
+                Text(model).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    .padding(.horizontal, 8).padding(.vertical, 2)
+                    .overlay(Capsule().stroke(KapitsaTheme.border, lineWidth: 1))
+                    .help(server.connection != nil ? "The model running now; the thinking buttons are for it"
+                                                  : "The model that ran last; start Kapitsa to chat")
+            }
             Text("Thinking").font(.callout)
             SettingHelpIcon(title: "Thinking", message: thinkingHelp)
             if server.thinking.levels.isEmpty {
@@ -333,9 +346,13 @@ struct ChatPage: View, Equatable {
                 .labelsHidden()
                 .frame(width: CGFloat(server.thinking.levels.count) * 80)
             }
-            if rereadsChat {
+            // Its place is kept for models whose level can re-read the chat, so the buttons
+            // to the right don't move when it appears.
+            if server.thinking.changeRereadsChat {
                 Label("Next reply re-reads the chat", systemImage: "arrow.counterclockwise")
-                    .font(.caption).foregroundStyle(.orange)
+                    .font(.caption).foregroundStyle(KapitsaTheme.accent)
+                    .opacity(rereadsChat ? 1 : 0)
+                    .accessibilityHidden(!rereadsChat)
                     .help("This model's thinking level sits at the start of the prompt, so after a change Kapitsa can't reuse its cache: the next reply reads the whole chat again before it starts. Switching back to \(lastReplyLevel.map { server.thinking.label($0) } ?? "the earlier level") avoids it.")
             }
             Spacer(minLength: 10)
@@ -344,30 +361,30 @@ struct ChatPage: View, Equatable {
                 actions.labelStyle(.titleAndIcon)
                 actions.labelStyle(.iconOnly)
             }
+            Divider().frame(height: 18)
+            Toggle(isOn: $outlineShown) { Label("Side panel", systemImage: "sidebar.right") }
+                .toggleStyle(KapitsaPanelToggleStyle())
+                .help("Side panel: show or hide the Outline, Topics and Review")
         }
     }
 
     private var actions: some View {
         HStack(spacing: 10) {
-            Toggle(isOn: $chatListShown) { Label("Chats", systemImage: "sidebar.left") }
-                .toggleStyle(.button)
-                .help("Chats: show or hide the list of your saved chats")
             Button(action: openFind) { Label("Find", systemImage: "magnifyingglass") }
                 .keyboardShortcut("f")
                 .disabled(chat.messages.isEmpty)
                 .help("Find: search this chat for words (⌘F)")
-            Toggle(isOn: $autoScroll) { Label("Auto-scroll", systemImage: "arrow.down.to.line") }
-                .toggleStyle(.button)
-                .help("Auto-scroll: follow the reply as it's written. Turn off to read earlier turns while the model works.")
-            Toggle(isOn: $outlineShown) { Label("Outline", systemImage: "sidebar.right") }
-                .toggleStyle(.button)
-                .help("Outline: show or hide the panel of questions and topics")
-            Button { export(chat.messages) } label: { Label("Export", systemImage: "square.and.arrow.up") }
-                .disabled(chat.messages.isEmpty || chat.isStreaming)
-                .help("Export: save the whole chat as a Markdown file")
             Button { onSelectChat(UUID()) } label: { Label("New chat", systemImage: "square.and.pencil") }
                 .disabled(chat.messages.isEmpty)
                 .help("New chat: start a new conversation; this one stays in your chats")
+            Menu {
+                Toggle("Auto-scroll", isOn: $autoScroll)
+                Button("Export Chat…") { export(chat.messages) }
+                    .disabled(chat.messages.isEmpty || chat.isStreaming)
+            } label: { Label("More", systemImage: "ellipsis.circle") }
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("More: Auto-scroll, which follows a reply as it's written, and Export, which saves the whole chat as Markdown")
         }
         .fixedSize()
     }
