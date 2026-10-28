@@ -71,6 +71,7 @@ struct ContentView: View {
                                              thinking: thinkingModel.map {
                                                  KapitsaThinkingOptions.forModel($0, configured: controller.runningModelSetting)
                                              } ?? .onOff),
+                     processController: controller,
                      chat: chats.controller(for: shown), chats: chats, chatID: shown,
                      selectedChat: currentChat, isOpening: shown != currentChat,
                      onSelectChat: { openChat($0) },

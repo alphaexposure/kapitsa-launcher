@@ -17,6 +17,9 @@ struct ChatServerFacts: Equatable {
 
 struct ChatPage: View, Equatable {
     let server: ChatServerFacts
+    /// For the model menu, which follows the server itself; the page doesn't, so status
+    /// checks don't redraw the conversation.
+    let processController: KapitsaProcessController
     @ObservedObject var chat: KapitsaChatController
     @ObservedObject var chats: KapitsaChatLibrary
     /// The ID of `chat`, which may have no file yet.
@@ -52,7 +55,7 @@ struct ChatPage: View, Equatable {
 
     /// Redrawn when what it shows changes; changes to the chat itself redraw it through `chat`.
     static func == (lhs: ChatPage, rhs: ChatPage) -> Bool {
-        lhs.server == rhs.server && lhs.chat === rhs.chat && lhs.chatID == rhs.chatID
+        lhs.server == rhs.server && lhs.processController === rhs.processController && lhs.chat === rhs.chat && lhs.chatID == rhs.chatID
             && lhs.selectedChat == rhs.selectedChat && lhs.isOpening == rhs.isOpening && lhs.initialFind == rhs.initialFind
     }
 
@@ -327,24 +330,16 @@ struct ChatPage: View, Equatable {
                 .toggleStyle(KapitsaPanelToggleStyle())
                 .help("Chats: show or hide the list of your saved chats")
             Divider().frame(height: 18)
-            if let model = server.thinkingModel {
-                Text(model).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    .padding(.horizontal, 8).padding(.vertical, 2)
-                    .overlay(Capsule().stroke(KapitsaTheme.border, lineWidth: 1))
-                    .help(server.connection != nil ? "The model running now; the thinking buttons are for it"
-                                                  : "The model that ran last; start Kapitsa to chat")
-            }
+            ModelSwitcher(controller: processController, isBusy: chat.isStreaming)
             Text("Thinking").font(.callout)
             SettingHelpIcon(title: "Thinking", message: thinkingHelp)
             if server.thinking.levels.isEmpty {
                 Text("Set by the model").font(.callout).foregroundStyle(.secondary)
             } else {
-                Picker("Thinking", selection: Binding(get: { chat.thinking }, set: setThinking)) {
-                    ForEach(server.thinking.levels) { Text(server.thinking.label($0)).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(width: CGFloat(server.thinking.levels.count) * 80)
+                KapitsaSegmentedPicker(options: server.thinking.levels,
+                                       selection: Binding(get: { chat.thinking }, set: setThinking),
+                                       label: server.thinking.label, segmentWidth: 76)
+                    .accessibilityLabel("Thinking")
             }
             // Its place is kept for models whose level can re-read the chat, so the buttons
             // to the right don't move when it appears.
@@ -801,13 +796,14 @@ private struct ChatOutlineView: View, Equatable {
     var body: some View {
         let entries = KapitsaChatOutline.entries(from: messages)
         VStack(alignment: .leading, spacing: 0) {
-            Picker("View", selection: $mode) {
-                Text("Outline").tag(Mode.outline)
-                Text("Topics").tag(Mode.topics)
-                Text("Review").tag(Mode.review)
+            KapitsaSegmentedPicker(options: [Mode.outline, .topics, .review], selection: $mode) { mode in
+                switch mode {
+                case .outline: return "Outline"
+                case .topics: return "Topics"
+                case .review: return "Review"
+                }
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
+            .accessibilityLabel("Side panel view")
             .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 8)
             if let tokens = KapitsaChatOutline.conversationTokens(in: messages) {
                 VStack(alignment: .leading, spacing: 4) {

@@ -40,9 +40,7 @@ struct OverviewPage: View {
                         Text(engine?.model == nil ? "Selected model" : "Loaded model")
                             .font(.caption).foregroundStyle(.secondary)
                         HStack(alignment: .top, spacing: 8) {
-                            Text(displayedModel)
-                                .font(.system(size: 18, weight: .semibold))
-                                .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                            ModelSwitcher(controller: controller, isLarge: true)
                             copyModelButton
                         }
                     }
@@ -152,11 +150,9 @@ struct OverviewPage: View {
             ? controller.recentRequests.first { labels.kind(of: $0) == .chatReply } : controller.lastRequest
         HStack(spacing: 10) {
             Text(showsChatReplies ? "Latest chat reply" : "Latest request").font(.headline)
-            Picker("Show", selection: $showsChatReplies) {
-                Text("Chat reply").tag(true)
-                Text("Any request").tag(false)
-            }
-            .pickerStyle(.segmented).labelsHidden().fixedSize()
+            KapitsaSegmentedPicker(options: [true, false], selection: $showsChatReplies) { $0 ? "Chat reply" : "Any request" }
+                .fixedSize()
+                .accessibilityLabel("Show")
             .help("Chat reply shows your latest answer in the Chat page. Any request also shows the short background requests the launcher makes for the topic index, and export summaries.")
             Spacer()
             Text(request.map { "\(requestTitle($0)) · finished at \($0.finishedAt)" }
