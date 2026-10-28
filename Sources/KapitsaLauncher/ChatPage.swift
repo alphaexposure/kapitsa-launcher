@@ -13,6 +13,8 @@ struct ChatServerFacts: Equatable {
     /// The model the thinking buttons are for: the one running, else the one that ran last.
     var thinkingModel: String?
     var thinking: KapitsaThinkingOptions = .onOff
+    /// A model being downloaded before Kapitsa can load it.
+    var download: KapitsaEngineInfo.Download?
 }
 
 struct ChatPage: View, Equatable {
@@ -63,8 +65,10 @@ struct ChatPage: View, Equatable {
         VStack(alignment: .leading, spacing: 14) {
             toolbar
             if server.connection == nil {
-                Notice(server.isRunning ? "Kapitsa is starting. You can chat once it's ready."
-                       : "Start Kapitsa to chat with your model.", symbol: "info.circle")
+                Notice(server.download.map { "\($0.summary)\($0.percent.map { " (\($0)%)" } ?? ""). You can chat once it has downloaded and loaded." }
+                       ?? (server.isRunning ? "Kapitsa is starting. You can chat once it's ready."
+                       : "Start Kapitsa to chat with your model."),
+                       symbol: server.download == nil ? "info.circle" : "arrow.down.circle")
             }
             if let exportError { Notice(exportError, symbol: "exclamationmark.triangle", isError: true) }
             conversation

@@ -28,8 +28,10 @@ struct KapitsaModelStorage: Equatable {
     static var modelsDirectory: URL { home().appendingPathComponent("models", isDirectory: true) }
     static var prefixCacheDirectory: URL { home().appendingPathComponent("prefix-cache", isDirectory: true) }
 
-    /// Kapitsa names each model's folder `<model>-<variant>`; it accepts `<model>:<variant>`.
+    /// Kapitsa names each catalog model's folder `<model>-<variant>`, which it accepts as
+    /// `<model>:<variant>`, and a Hugging Face repo's `<org>--<name>`, accepted as `<org>/<name>`.
     static func modelName(folderName: String) -> String {
+        if let separator = folderName.range(of: "--") { return folderName.replacingCharacters(in: separator, with: "/") }
         guard let hyphen = folderName.lastIndex(of: "-") else { return folderName }
         return folderName[..<hyphen] + ":" + folderName[folderName.index(after: hyphen)...]
     }

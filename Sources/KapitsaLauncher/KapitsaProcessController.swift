@@ -279,6 +279,8 @@ final class KapitsaProcessController: ObservableObject {
         pendingLogText = ""
         if !hasReachedReady && !isStopping && quitCompletion == nil && !restartPending {
             launchErrorMessage = "Kapitsa stopped before it was ready. Check the logs for details."
+            // A model by name or folder that doesn't load leaves the menus.
+            if let model = activeConfiguration?.model { KapitsaKnownModels.forget(model) }
         }
         ownedProcess = nil
         activeConfiguration = nil
@@ -381,6 +383,9 @@ final class KapitsaProcessController: ObservableObject {
             case .success(let status):
                 self.update(\.status, to: status)
                 self.update(\.readiness, to: status.ready ? .ready : .loading)
+                if status.ready && !self.hasReachedReady, let model = self.activeConfiguration?.model {
+                    KapitsaKnownModels.remember(model)
+                }
                 if status.ready { self.hasReachedReady = true }
                 self.update(\.statusErrorMessage, to: nil)
             case .failure(let error):

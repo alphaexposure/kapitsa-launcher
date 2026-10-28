@@ -62,7 +62,11 @@ struct KapitsaThinkingOptions: Equatable {
         } else if template.contains("medium_effort") {
             self.init(kind: .shorterFull, levels: [.off, .shorter, .on], defaultLevel: .on, changeRereadsChat: false)
         } else if template.contains("enable_thinking") {
-            self = .onOff
+            // Some think only when asked (the Qwen3.5 2B: "enable_thinking is defined and
+            // enable_thinking is true"); their default is Off.
+            self = Self.thinksOnlyWhenAsked(template)
+                ? KapitsaThinkingOptions(kind: .onOff, levels: [.off, .on], defaultLevel: .off, changeRereadsChat: false)
+                : .onOff
         } else {
             self.init(kind: .none, levels: [], defaultLevel: .on, changeRereadsChat: false)
         }
@@ -94,6 +98,13 @@ struct KapitsaThinkingOptions: Equatable {
         return found.isEmpty ? Set(levels) : found
     }
 
+    /// Whether the template thinks only when `enable_thinking` is set to true, rather than
+    /// unless it's set to false.
+    static func thinksOnlyWhenAsked(_ template: String) -> Bool {
+        template.range(of: #"enable_thinking\s+is\s+defined\s+and\s+enable_thinking\s+is\s+true"#, options: .regularExpression) != nil
+            && template.range(of: #"enable_thinking\s+is\s+false"#, options: .regularExpression) == nil
+    }
+
     // MARK: Finding the template
 
     /// A model folder's chat template: `chat_template.jinja`, else `tokenizer_config.json`'s.
@@ -119,6 +130,12 @@ struct KapitsaThinkingOptions: Equatable {
                 return path
             }
         }
+        // A Hugging Face repo, saved as <org>--<name>.
+        if let configured, configured.contains("/"), !configured.hasPrefix("/"), !configured.hasPrefix("~") {
+            let repo = modelsDirectory.appendingPathComponent(configured.split(separator: "@").first.map(String.init)!
+                .replacingOccurrences(of: "/", with: "--"))
+            if FileManager.default.fileExists(atPath: repo.path) { return repo }
+        }
         let folders = ((try? FileManager.default.contentsOfDirectory(at: modelsDirectory, includingPropertiesForKeys: nil)) ?? [])
             .filter { $0.lastPathComponent.hasPrefix(id + "-") || $0.lastPathComponent == id }
         let variant = configured?.split(separator: ":").dropFirst().first.map { id + "-" + $0 }
@@ -143,7 +160,9 @@ struct KapitsaThinkingOptions: Equatable {
 enum KapitsaThinkingChoice {
     static let lastModelKey = "KapitsaLauncher.chatThinkingModel"
 
-    static func key(for model: String) -> String { "KapitsaLauncher.chatThinking." + model }
+    /// "Level" since the 2B fix: choices saved before it could hold On for models that think
+    /// only when asked, the old default, so each model starts again from its template's default.
+    static func key(for model: String) -> String { "KapitsaLauncher.chatThinkingLevel." + model }
 
     static func saved(for model: String, defaults: UserDefaults = .standard) -> KapitsaThinkingLevel? {
         defaults.string(forKey: key(for: model)).flatMap(KapitsaThinkingLevel.init)
@@ -151,5 +170,43 @@ enum KapitsaThinkingChoice {
 
     static func save(_ level: KapitsaThinkingLevel, for model: String, defaults: UserDefaults = .standard) {
         defaults.set(level.rawValue, forKey: key(for: model))
+    }
+}
+
+/// Models used by name, folder or file that aren't downloaded into Kapitsa's own folder, such
+/// as LM Studio's: remembered once they load, so the model menus keep offering them, and
+/// forgotten when a start with one fails or its folder has gone.
+enum KapitsaKnownModels {
+    static let key = "KapitsaLauncher.knownModels"
+
+    static func all(defaults: UserDefaults = .standard, fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> [String] {
+        (defaults.stringArray(forKey: key) ?? []).filter { model in
+            !isPath(model) || fileExists((model as NSString).expandingTildeInPath)
+        }
+    }
+
+    /// Remembers a model that loaded, unless it's one of the catalog's names.
+    static func remember(_ model: String, defaults: UserDefaults = .standard) {
+        let model = model.trimmingCharacters(in: .whitespaces)
+        guard !model.isEmpty, !KapitsaConfiguration.catalogModels.contains(where: { $0.name == model.split(separator: ":").first.map(String.init) }),
+              isPath(model) || model.contains("/") else { return }
+        var list = defaults.stringArray(forKey: key) ?? []
+        list.removeAll { $0 == model }
+        defaults.set([model] + list, forKey: key)
+    }
+
+    static func forget(_ model: String, defaults: UserDefaults = .standard) {
+        let list = (defaults.stringArray(forKey: key) ?? []).filter { $0 != model }
+        defaults.set(list, forKey: key)
+    }
+
+    static func isPath(_ model: String) -> Bool { model.hasPrefix("/") || model.hasPrefix("~") }
+
+    /// "Qwen3.5-9B-MLX-4bit · ~/.lmstudio/models/lmstudio-community" for a folder, the name otherwise.
+    static func title(_ model: String) -> String {
+        guard isPath(model) else { return model }
+        let url = URL(fileURLWithPath: (model as NSString).expandingTildeInPath)
+        let parent = (url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath
+        return url.lastPathComponent + " · " + parent
     }
 }

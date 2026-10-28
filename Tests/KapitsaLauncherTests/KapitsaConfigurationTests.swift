@@ -87,4 +87,19 @@ final class KapitsaConfigurationTests: XCTestCase {
         XCTAssertNil(KapitsaConfiguration.catalogModel(forDownloaded: "someone/custom-model"))
         XCTAssertEqual(Set(KapitsaConfiguration.catalogModels.map(\.name)).count, KapitsaConfiguration.catalogModels.count)
     }
+
+    func testSaysWhatStartWillDoBeforeTheModelLoads() {
+        let installed = ["qwen3.6-35b-a3b:4bit", "lmstudio-community/Qwen3.5-2B-MLX-4bit"]
+        let note = { KapitsaConfiguration.preparationNote(for: $0, installed: installed, fileExists: { $0 == "/models/a" || $0 == "/x.gguf" }) }
+        XCTAssertNil(note("35b"), "downloaded")
+        XCTAssertNil(note("qwen3.6-35b-a3b:4bit"))
+        XCTAssertNil(note("lmstudio-community/Qwen3.5-2B-MLX-4bit"), "a repo already downloaded")
+        XCTAssertNil(note(""), "the best model is Kapitsa's choice")
+        XCTAssertEqual(note("27b"), "Not downloaded yet: about 20.2 GB downloads when you press Start, then the model loads. The Overview shows the progress.")
+        XCTAssertTrue(note("35b:8bit")?.hasPrefix("Not downloaded yet: this precision") == true)
+        XCTAssertTrue(note("someone/Qwen3.5-9B-Fine-Tune")?.hasPrefix("Downloads from Hugging Face") == true)
+        XCTAssertNil(note("/models/a"), "a folder on this Mac")
+        XCTAssertTrue(note("/x.gguf")?.contains("converts this GGUF") == true)
+        XCTAssertEqual(note("/missing"), "Nothing is at that path on this Mac.")
+    }
 }

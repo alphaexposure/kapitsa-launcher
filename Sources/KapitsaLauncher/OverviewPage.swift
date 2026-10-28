@@ -67,6 +67,22 @@ struct OverviewPage: View {
                         Spacer()
                         if let pid = controller.state.processID { Text("PID \(String(pid))") }
                     }.font(.caption).foregroundStyle(.secondary)
+                } else if controller.state.isRunning, !controller.isStopping, let download = controller.engine.download {
+                    VStack(alignment: .leading, spacing: 6) {
+                        if let percent = download.percent {
+                            ProgressView(value: Double(percent), total: 100).tint(KapitsaTheme.accentFill)
+                        } else {
+                            ProgressView().progressViewStyle(.linear).tint(KapitsaTheme.accentFill)
+                        }
+                        HStack {
+                            Text(download.summary)
+                            Spacer()
+                            if let percent = download.percent { Text("\(percent)%").monospacedDigit() }
+                        }
+                        .font(.callout).foregroundStyle(.secondary)
+                        Text("The first start of a model downloads it; later starts load it from this Mac. It loads once the download finishes.")
+                            .font(.caption).foregroundStyle(.tertiary)
+                    }
                 } else {
                     Text(controller.isStopping ? "Waiting for Kapitsa to finish shutting down…"
                          : controller.state.isRunning ? "Loading the model and starting the server. The first start downloads it, which can take a while."

@@ -70,7 +70,8 @@ struct ContentView: View {
                                              contextTokens: controller.engine.contextTokens, thinkingModel: thinkingModel,
                                              thinking: thinkingModel.map {
                                                  KapitsaThinkingOptions.forModel($0, configured: controller.runningModelSetting)
-                                             } ?? .onOff),
+                                             } ?? .onOff,
+                                             download: controller.state.isRunning ? controller.engine.download : nil),
                      processController: controller,
                      chat: chats.controller(for: shown), chats: chats, chatID: shown,
                      selectedChat: currentChat, isOpening: shown != currentChat,

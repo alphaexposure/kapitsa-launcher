@@ -82,6 +82,36 @@ struct KapitsaConfiguration: Codable, Equatable {
         return catalogModels.first { $0.id == id }
     }
 
+    /// What pressing Start will do for `model` before it can load, when that's more than loading:
+    /// a download, or a GGUF's one-time conversion. Nil when it's already on this Mac.
+    static func preparationNote(for model: String, installed: [String],
+                                fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> String? {
+        let model = model.trimmingCharacters(in: .whitespaces)
+        guard !model.isEmpty, !installed.contains(model) else { return nil }
+        let path = (model as NSString).expandingTildeInPath
+        if model.hasPrefix("/") || model.hasPrefix("~") || model.hasPrefix(".") {
+            guard fileExists(path) else { return "Nothing is at that path on this Mac." }
+            return model.lowercased().hasSuffix(".gguf")
+                ? "Kapitsa converts this GGUF into a model folder once, the first time you press Start; that takes a few minutes."
+                : nil
+        }
+        let parts = model.split(separator: ":", maxSplits: 1).map(String.init)
+        if let catalog = catalogModels.first(where: { $0.name == parts[0] }) {
+            let variant = parts.count > 1 ? parts[1] : nil
+            let have = installed.contains { name in
+                guard catalogModel(forDownloaded: name)?.name == catalog.name else { return false }
+                return variant.map { name.hasSuffix(":" + $0) } ?? true
+            }
+            if have { return nil }
+            let size = variant == nil ? "about \(catalog.downloadGB.formatted(.number.precision(.fractionLength(1)))) GB" : "this precision"
+            return "Not downloaded yet: \(size) downloads when you press Start, then the model loads. The Overview shows the progress."
+        }
+        if model.contains("/") {
+            return "Downloads from Hugging Face when you press Start, unless Kapitsa already has it; the Overview shows the progress. Kapitsa runs Qwen3.5-family models (Qwen3.5, 3.6, 3.8) in MLX format or as a .gguf file."
+        }
+        return nil
+    }
+
     /// This Mac's memory in GB, as Apple counts it (32 for a 32 GB Mac).
     static var physicalMemoryGB: Int { Int(ProcessInfo.processInfo.physicalMemory >> 30) }
 

@@ -37,8 +37,12 @@ A native macOS app for starting, stopping and monitoring a local
 - **Start, stop and restart** Kapitsa with one click, and open its own chat page from the Overview.
 - **Switch models** from the model's name on the Overview or in the Chat toolbar: downloaded
   models, then the catalog. While Kapitsa runs, it asks first, then restarts with the new model;
-  it waits while a reply is being written. Settings has the rest (a model by name or folder,
-  context, slots).
+  it waits while a reply is being written ("Don't ask again" skips the question; App settings
+  turns it back on). A model you load by name or folder, such as one of LM Studio's, stays in the
+  menus under Your models until a start with it fails or its folder goes. **Choose a Model on
+  This Mac…** in the menus (and **Choose…** in Settings) picks a model folder or .gguf in Finder,
+  starting in LM Studio's models, and says at once if Kapitsa can't run it (by its config.json). Settings has the rest
+  (a model by name or folder, context, slots).
 - **Chat page:** a native chat with the running model.
   - Replies stream in, with the model's reasoning in a section that folds away once the
     answer starts ("Thought for 11.6 s").
@@ -146,7 +150,11 @@ A native macOS app for starting, stopping and monitoring a local
     speeds and tokens per draft cycle. Switch it to **Any request** to include the launcher's
     short background requests for the topic index, and export summaries, each labelled.
 - **Downloaded models** with their size on disk, and the SSD prefix cache size.
-- **Server output** log with auto-scroll, Copy, and any API key redacted.
+- **Server output** log: long lines wrap, a filter and All · Requests · Warnings and errors
+  narrow it, problems stand out, and Copy copies the lines shown; any API key is redacted.
+- **First starts download the model:** Settings says so before you press Start (with the size
+  for catalog models), and the Overview shows a progress bar with speed and time left, as
+  does the Chat page's notice.
 - **Menu bar** control to reopen the window or stop the server.
 - **Optional extras:** launch at login, and a light, dark or system appearance.
 

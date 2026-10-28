@@ -29,6 +29,11 @@ final class KapitsaThinkingOptionsTests: XCTestCase {
         XCTAssertEqual(onOff, .onOff)
         XCTAssertEqual(onOff.levels.map(onOff.label), ["Off", "On"])
 
+        let askedOnly = KapitsaThinkingOptions(template: "{%- if enable_thinking is defined and enable_thinking is true %}<think>{%- endif %}")
+        XCTAssertEqual(askedOnly.levels, [.off, .on])
+        XCTAssertEqual(askedOnly.defaultLevel, .off, "the Qwen3.5 2B thinks only when asked")
+        XCTAssertEqual(KapitsaThinkingOptions(template: "{%- if enable_thinking is defined and enable_thinking is false %}").defaultLevel, .on)
+
         let none = KapitsaThinkingOptions(template: "{%- if add_generation_prompt -%}<|assistant|>{%- endif -%}")
         XCTAssertEqual(none.kind, .none)
         XCTAssertTrue(none.levels.isEmpty)
@@ -74,6 +79,10 @@ final class KapitsaThinkingOptionsTests: XCTestCase {
                        tokenizer.standardizedFileURL.path,
                        "a folder given to --model")
         XCTAssertNil(KapitsaThinkingOptions.folder(forModel: "qwen3.5-4b", configured: nil, modelsDirectory: root))
+        let repo = root.appendingPathComponent("lmstudio-community--Qwen3.5-2B-MLX-4bit")
+        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+        XCTAssertEqual(KapitsaThinkingOptions.folder(forModel: "Qwen3.5-2B-MLX-4bit", configured: "lmstudio-community/Qwen3.5-2B-MLX-4bit",
+                                                     modelsDirectory: root)?.lastPathComponent, repo.lastPathComponent, "a Hugging Face repo")
         XCTAssertEqual(KapitsaThinkingOptions.template(in: tokenizer), "{{ enable_thinking }}")
     }
 
@@ -97,5 +106,30 @@ final class KapitsaThinkingOptionsTests: XCTestCase {
                 XCTAssertEqual(options.levelsWithStartText, [.low, .xhigh], name)
             }
         }
+    }
+}
+
+final class KapitsaKnownModelsTests: XCTestCase {
+    func testRemembersModelsThatLoadAndForgetsOnesThatFailOrMove() {
+        let defaults = UserDefaults(suiteName: "KapitsaKnownModelsTests")!
+        defaults.removePersistentDomain(forName: "KapitsaKnownModelsTests")
+        KapitsaKnownModels.remember("/Users/me/.lmstudio/models/org/Qwen3.5-9B-MLX-4bit", defaults: defaults)
+        KapitsaKnownModels.remember("someone/Qwen3.5-Fine-Tune", defaults: defaults)
+        KapitsaKnownModels.remember("35b", defaults: defaults)
+        KapitsaKnownModels.remember("35b:8bit", defaults: defaults)
+        XCTAssertEqual(KapitsaKnownModels.all(defaults: defaults, fileExists: { _ in true }),
+                       ["someone/Qwen3.5-Fine-Tune", "/Users/me/.lmstudio/models/org/Qwen3.5-9B-MLX-4bit"],
+                       "the newest first; catalog names aren't remembered")
+        XCTAssertEqual(KapitsaKnownModels.all(defaults: defaults, fileExists: { _ in false }), ["someone/Qwen3.5-Fine-Tune"],
+                       "a folder that has gone is left out")
+        KapitsaKnownModels.forget("someone/Qwen3.5-Fine-Tune", defaults: defaults)
+        XCTAssertEqual(KapitsaKnownModels.all(defaults: defaults, fileExists: { _ in true }), ["/Users/me/.lmstudio/models/org/Qwen3.5-9B-MLX-4bit"])
+        XCTAssertEqual(KapitsaKnownModels.title("/Users/me/x/Qwen3.5-9B-MLX-4bit").components(separatedBy: " · ").first, "Qwen3.5-9B-MLX-4bit")
+    }
+
+    func testOtherModelsLeaveOutDownloadedAndCatalogOnes() {
+        XCTAssertEqual(ModelSwitcher.otherModels(known: ["a/b", "/x/y", "qwen3.8-27b:4bit"], current: "a/b",
+                                                 installed: ["qwen3.8-27b:4bit"]), ["a/b", "/x/y"])
+        XCTAssertEqual(ModelSwitcher.otherModels(known: [], current: "35b", installed: []), [])
     }
 }

@@ -130,18 +130,64 @@ struct KapitsaEngineInfo: Equatable {
     var kvRoomGB: Double?
     var kvTokens: Int?
     var address: String?
+    /// A model being downloaded before it loads; nil once it's here.
+    var download: Download?
+
+    /// Kapitsa's download, from the lines it prints when its output isn't a terminal:
+    /// "Downloading NAME (…) into …", then every 15 seconds "0.80 GB of 1.75 GB  45%  60.2 MB/s
+    /// 15s left", then "Downloaded 1.75 GB in 30s (58 MB/s)."
+    struct Download: Equatable {
+        var name: String
+        /// Nil until the first progress line, 15 seconds in.
+        var percent: Int?
+        var done: String?
+        var total: String?
+        var megabytesPerSecond: Double?
+        var timeLeft: String?
+
+        /// "Downloading qwen3.5-2b · 0.80 of 1.75 GB · 60 MB/s · about 15s left".
+        var summary: String {
+            var parts = ["Downloading " + (name.isEmpty ? "the model" : name)]
+            if let done, let total {
+                let unit = { (s: String) in s.split(separator: " ").last.map(String.init) ?? "" }
+                parts.append(unit(done) == unit(total) ? "\(done.split(separator: " ").first ?? "") of \(total)" : "\(done) of \(total)")
+            }
+            if let rate = megabytesPerSecond, rate > 0 { parts.append("\(Int(rate.rounded())) MB/s") }
+            if let timeLeft, timeLeft != "?" { parts.append("about \(timeLeft) left") }
+            return parts.joined(separator: " · ")
+        }
+    }
 
     private static let ready = regex(#"engine ready: (.+?), context (\d+), (\d+) slots?(?:, (.+))?$"#)
     private static let memory = regex(
         #"memory: ([\d.]+) GB allocated .*?budget ([\d.]+) GB \(recommended working set ([\d.]+) GB\): KV room ([\d.]+) GB = (\d+) tokens"#)
     private static let gpuLine = regex(#"GPU: (.+?), (\d+) cores"#)
     private static let listening = regex(#"listening on (https?://\S+)"#)
+    private static let downloading = regex(#"^Downloading (\S+) \("#)
+    private static let progress = regex(
+        #"^([\d.]+ [KMG]B) of ([\d.]+ [KMG]B)\s+(\d+)%\s+([\d.]+) MB/s\s+(.+?) left$"#)
+    private static let downloaded = regex(#"^Downloaded [\d.]+ [KMG]B in "#)
 
     /// Updates the values a startup line reports. Returns whether the line was recognised.
     @discardableResult
     mutating func apply(logLine: some StringProtocol) -> Bool {
         let line = String(logLine).trimmingCharacters(in: .whitespacesAndNewlines)
-        if let groups = captures(Self.ready, in: line) {
+        // Only a "Downloading" line starts one: Kapitsa fetches the file list on starts that
+        // download nothing too.
+        if let groups = captures(Self.downloading, in: line) {
+            download = Download(name: groups[0])
+        } else if let groups = captures(Self.progress, in: line) {
+            var current = download ?? Download(name: "")
+            current.done = groups[0]
+            current.total = groups[1]
+            current.percent = Int(groups[2])
+            current.megabytesPerSecond = Double(groups[3])
+            current.timeLeft = groups[4]
+            download = current
+        } else if captures(Self.downloaded, in: line) != nil {
+            download = nil
+        } else if let groups = captures(Self.ready, in: line) {
+            download = nil
             model = groups[0]
             contextTokens = Int(groups[1])
             slots = Int(groups[2])

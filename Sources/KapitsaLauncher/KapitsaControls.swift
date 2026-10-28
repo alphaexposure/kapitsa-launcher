@@ -51,7 +51,12 @@ struct ModelSwitcher: View {
     /// The Overview's large name, or the Chat toolbar's small one.
     var isLarge = false
     @State private var installed: [String] = []
+    @State private var known: [String] = []
     @State private var pending: String?
+    /// Why a model chosen in Finder can't be used.
+    @State private var chooseProblem: String?
+    /// Switch without asking; turned back on in App settings.
+    @AppStorage("KapitsaLauncher.skipModelSwitchConfirmation") private var skipConfirmation = false
 
     /// What the menu's button says: the model running, else the one chosen.
     private var shownName: String {
@@ -75,14 +80,17 @@ struct ModelSwitcher: View {
                     }
                 }
             }
+            Button("Choose a Model on This Mac…", action: chooseInFinder)
             Section("Kapitsa catalog") {
                 ForEach(KapitsaConfiguration.catalogModels, id: \.name) { model in
                     choice(model.name, title: "\(model.label) (\(model.name)) — \(model.details(physicalMemoryGB: KapitsaConfiguration.physicalMemoryGB))")
                 }
             }
-            let current = controller.configuration.model
-            if !current.isEmpty && !installed.contains(current) && !KapitsaConfiguration.catalogModels.contains(where: { $0.name == current }) {
-                Section("From Settings") { choice(current, title: current) }
+            let others = Self.otherModels(known: known, current: controller.configuration.model, installed: installed)
+            if !others.isEmpty {
+                Section("Your models") {
+                    ForEach(others, id: \.self) { model in choice(model, title: KapitsaKnownModels.title(model)) }
+                }
             }
         } label: {
             HStack(spacing: 4) {
@@ -111,25 +119,62 @@ struct ModelSwitcher: View {
               : controller.state.isRunning ? "Switch models: Kapitsa restarts and loads the one you choose"
               : "Choose the model Kapitsa starts with")
         .accessibilityLabel("Model: \(shownName)")
-        .onAppear { installed = KapitsaModelStorage.installedModels() }
+        .onAppear {
+            installed = KapitsaModelStorage.installedModels()
+            known = KapitsaKnownModels.all()
+        }
+        .alert("Kapitsa can't run this model", isPresented: Binding(get: { chooseProblem != nil }, set: { if !$0 { chooseProblem = nil } })) {
+            Button("OK") { chooseProblem = nil }
+        } message: {
+            Text(chooseProblem ?? "")
+        }
         .confirmationDialog("Switch to \(Self.name(of: pending ?? ""))?",
                             isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } })) {
             Button("Restart with It") {
                 guard let model = pending else { return }
                 pending = nil
-                controller.configuration.model = model
-                controller.restart()
+                switchTo(model)
             }
+            .dialogSuppressionToggle("Don't ask again", isSuppressed: $skipConfirmation)
         } message: {
             Text("Kapitsa stops and loads the new model, which takes from several seconds to a minute; a model not downloaded yet is downloaded first. Its first reply reads your chat again, and its context may be smaller, so a long chat may come nearer the limit.")
         }
     }
 
+    /// Models used by name or folder that loaded before, and the one set in Settings, without
+    /// the ones listed as downloaded or in the catalog, each once.
+    static func otherModels(known: [String], current: String, installed: [String]) -> [String] {
+        var seen = Set<String>()
+        return (known + [current]).filter { model in
+            !model.isEmpty && !installed.contains(model) && !KapitsaConfiguration.catalogModels.contains { $0.name == model }
+                && seen.insert(model).inserted
+        }
+    }
+
+    /// A model folder or .gguf from Finder, checked first, then chosen as from the menu.
+    private func chooseInFinder() {
+        guard let url = KapitsaModelFinder.choose() else { return }
+        if case .problem(let text) = KapitsaModelFinder.check(url) {
+            chooseProblem = text
+            return
+        }
+        select(url.path)
+    }
+
+    private func select(_ model: String) {
+        guard model != controller.configuration.model else { return }
+        if !controller.state.isRunning { controller.configuration.model = model }
+        else if skipConfirmation { switchTo(model) }
+        else { pending = model }
+    }
+
+    private func switchTo(_ model: String) {
+        controller.configuration.model = model
+        controller.restart()
+    }
+
     private func choice(_ model: String, title: String) -> some View {
-        Button {
-            guard model != controller.configuration.model else { return }
-            if controller.state.isRunning { pending = model } else { controller.configuration.model = model }
-        } label: {
+        Button { select(model) } label: {
             if model == controller.configuration.model { Label(title, systemImage: "checkmark") } else { Text(title) }
         }
     }

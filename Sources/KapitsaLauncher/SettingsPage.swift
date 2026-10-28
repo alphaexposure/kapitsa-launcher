@@ -7,13 +7,15 @@ struct SettingsPage: View {
     @State private var installedModels: [String] = []
     @State private var modelStorage: KapitsaModelStorage?
     @State private var useCustomModel = false
+    /// What checking a model chosen in Finder found.
+    @State private var modelCheck: KapitsaModelFinder.Check?
     @State private var keyDraft = ""
 
     private static let customTag = "__custom__"
 
     /// Every name the picker offers: the automatic choice, downloaded models, then the catalog.
     private var pickerNames: Set<String> {
-        Set([""] + installedModels + KapitsaConfiguration.catalogModels.map(\.name))
+        Set([""] + installedModels + KapitsaKnownModels.all() + KapitsaConfiguration.catalogModels.map(\.name))
     }
 
     private var showsCustomModel: Bool {
@@ -57,6 +59,12 @@ struct SettingsPage: View {
                                     }
                                 }
                             }
+                            let others = ModelSwitcher.otherModels(known: KapitsaKnownModels.all(), current: "", installed: installedModels)
+                            if !others.isEmpty {
+                                Section("Your models") {
+                                    ForEach(others, id: \.self) { Text(KapitsaKnownModels.title($0)).tag($0) }
+                                }
+                            }
                             Section("Kapitsa catalog") {
                                 ForEach(KapitsaConfiguration.catalogModels, id: \.name) { model in
                                     Text("\(model.label) (\(model.name)) — \(model.details(physicalMemoryGB: KapitsaConfiguration.physicalMemoryGB))")
@@ -70,9 +78,30 @@ struct SettingsPage: View {
                         .disabled(controller.state.isRunning)
                     }
                     if showsCustomModel {
-                        field("Model", text: $controller.configuration.model,
-                              prompt: "org/name, folder or .gguf", defaultValue: "Best model for this Mac",
-                              helpText: "A catalog name such as 27b or 35b:8bit, a Hugging Face repo of a Qwen3.5-family model in MLX format (org/name[@revision]), a model folder, or a .gguf file, which Kapitsa converts once.")
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            field("Model", text: $controller.configuration.model,
+                                  prompt: "org/name, folder or .gguf", defaultValue: "Best model for this Mac",
+                                  helpText: "A catalog name such as 27b or 35b:8bit, a Hugging Face repo of a Qwen3.5-family model in MLX format (org/name[@revision]), a model folder, or a .gguf file, which Kapitsa converts once. Choose… picks a folder or file in Finder.")
+                            Button("Choose…", action: chooseModel)
+                                .disabled(controller.state.isRunning)
+                                .help("Pick a model folder (such as one of LM Studio's) or a .gguf file on this Mac")
+                        }
+                    }
+                    if let check = modelCheck {
+                        switch check {
+                        case .ok: EmptyView()
+                        case .note(let text):
+                            Label(text, systemImage: "info.circle").font(.callout).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        case .problem(let text):
+                            Label(text, systemImage: "exclamationmark.triangle").font(.callout).foregroundStyle(.red)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    if let note = KapitsaConfiguration.preparationNote(for: controller.configuration.model, installed: installedModels) {
+                        Label(note, systemImage: "arrow.down.circle")
+                            .font(.callout).foregroundStyle(KapitsaTheme.accent)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     HStack {
                         Text(installedModels.isEmpty ? "No downloaded models found." : "\(String(installedModels.count)) downloaded \(installedModels.count == 1 ? "model" : "models")")
@@ -173,6 +202,16 @@ struct SettingsPage: View {
             let storage = await Task.detached(priority: .utility) { KapitsaModelStorage.scan() }.value
             modelStorage = storage
         }
+    }
+
+    /// A model folder or .gguf from Finder: used when Kapitsa can run it, explained when not.
+    private func chooseModel() {
+        guard let url = KapitsaModelFinder.choose() else { return }
+        let check = KapitsaModelFinder.check(url)
+        modelCheck = check
+        if case .problem = check { return }
+        useCustomModel = true
+        controller.configuration.model = url.path
     }
 
     /// Each downloaded model's size, with a button that opens its folder.
