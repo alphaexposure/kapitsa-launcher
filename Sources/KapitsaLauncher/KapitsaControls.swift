@@ -60,7 +60,9 @@ struct ModelSwitcher: View {
 
     /// The model running, else the one chosen, in full: shown on hover.
     private var fullName: String {
-        if let model = controller.engine.model { return model }
+        // The loaded model's name outlives a stop, and a restart's old one lingers until the new
+        // model loads, so it's shown only while that model runs; otherwise, the one chosen.
+        if controller.state.isRunning, !controller.isStopping, let model = controller.engine.model { return model }
         return Self.name(of: controller.configuration.model)
     }
 
