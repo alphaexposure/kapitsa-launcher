@@ -175,4 +175,9 @@ final class KapitsaChatLibraryTests: XCTestCase {
         }
         wait(for: [failed, saved], timeout: 5)
     }
+
+    func testLauncherHomeMovesTheChats() {
+        XCTAssertEqual(KapitsaChatStore.folder(environment: ["KAPITSA_LAUNCHER_HOME": "/tmp/Demo Chats"]).path, "/tmp/Demo Chats")
+        XCTAssertTrue(KapitsaChatStore.folder(environment: [:]).path.hasSuffix("/Application Support/KapitsaLauncher"))
+    }
 }

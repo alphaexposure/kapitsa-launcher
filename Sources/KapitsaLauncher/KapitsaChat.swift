@@ -310,9 +310,15 @@ enum KapitsaChatError: LocalizedError {
 struct KapitsaChatStore {
     let url: URL
 
-    /// The launcher's folder in Application Support.
-    static var folder: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    /// The launcher's folder in Application Support, or `KAPITSA_LAUNCHER_HOME` when set, so a
+    /// second copy can keep separate chats, such as fresh ones for screenshots.
+    static var folder: URL { folder() }
+
+    static func folder(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+        if let path = environment["KAPITSA_LAUNCHER_HOME"], !path.isEmpty {
+            return URL(fileURLWithPath: (path as NSString).expandingTildeInPath, isDirectory: true)
+        }
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("KapitsaLauncher", isDirectory: true)
     }
 
