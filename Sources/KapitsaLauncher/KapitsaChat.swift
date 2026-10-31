@@ -343,21 +343,50 @@ struct KapitsaChatStore {
 
     /// Reads the file, including the plain list of messages that earlier versions saved.
     func loadDocument() -> Document {
+        Self.waitForWrites()
         guard let data = try? Data(contentsOf: url) else { return Document() }
         if let document = try? JSONDecoder().decode(Document.self, from: data) { return document }
-        return Document(messages: (try? JSONDecoder().decode([KapitsaChatMessage].self, from: data)) ?? [])
+        if let messages = try? JSONDecoder().decode([KapitsaChatMessage].self, from: data) { return Document(messages: messages) }
+        // Written by a newer launcher, or damaged: the chat opens empty, and its next save would
+        // replace the file, so a copy is kept first.
+        keepUnreadableCopy()
+        return Document()
+    }
+
+    /// Where an unreadable chat file is copied: beside it, as `<id>.json.unreadable`, which the
+    /// chat list doesn't read.
+    var unreadableCopyURL: URL { url.appendingPathExtension("unreadable") }
+
+    private func keepUnreadableCopy() {
+        guard !FileManager.default.fileExists(atPath: unreadableCopyURL.path) else { return }
+        try? FileManager.default.copyItem(at: url, to: unreadableCopyURL)
     }
 
     func save(_ messages: [KapitsaChatMessage], topicThemes: [String: String] = [:]) {
         save(Document(messages: messages, topicThemes: topicThemes))
     }
 
-    func save(_ document: Document) {
-        do {
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try JSONEncoder().encode(document).write(to: url, options: .atomic)
-        } catch {
-            // The conversation still works; it just won't be there after a relaunch.
+    /// Chats are written one at a time, in order, off the main thread: a long chat with images
+    /// is megabytes of JSON, written again for every fold or edit.
+    private static let writeQueue = DispatchQueue(label: "KapitsaLauncher.chatWrites", qos: .utility)
+
+    /// Waits for the writes already asked for: before a chat file is read, deleted or listed,
+    /// and before the app quits.
+    static func waitForWrites() { writeQueue.sync {} }
+
+    /// Writes the chat in the background, then tells `done`, on the main thread, why it
+    /// couldn't, or nil once it's saved.
+    func save(_ document: Document, done: (@MainActor (String?) -> Void)? = nil) {
+        let url = self.url
+        Self.writeQueue.async {
+            var problem: String?
+            do {
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try JSONEncoder().encode(document).write(to: url, options: .atomic)
+            } catch {
+                problem = "This chat couldn't be saved, so it won't be here after Kapitsa Launcher quits: \(error.localizedDescription)"
+            }
+            if let done { Task { @MainActor in done(problem) } }
         }
     }
 
@@ -398,6 +427,8 @@ final class KapitsaChatController: ObservableObject {
     var draft = ""
     @Published var pendingAttachments: [KapitsaChatAttachment] = []
     @Published var attachmentError: String?
+    /// Why the chat's last save failed; nil once a save works.
+    @Published private(set) var saveError: String?
     /// Which theme each topic belongs to, by topic key, for the whole chat.
     @Published private(set) var topicThemes: [String: String]
     /// Finding topics for earlier replies: how many are done out of how many.
@@ -687,7 +718,9 @@ final class KapitsaChatController: ObservableObject {
                                                  createdAt: createdAt, updatedAt: updatedAt,
                                                  continuesFrom: continuesFrom, continuedIn: continuedIn,
                                                  review: review.isEmpty ? nil : review)
-        store.save(document)
+        store.save(document) { [weak self] problem in
+            if self?.saveError != problem { self?.saveError = problem }
+        }
         onSave?(document)
     }
 

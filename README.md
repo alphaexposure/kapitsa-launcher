@@ -39,7 +39,8 @@ A native macOS app for starting, stopping and monitoring a local
   models, then the catalog. While Kapitsa runs, it asks first, then restarts with the new model;
   it waits while a reply is being written ("Don't ask again" skips the question; App settings
   turns it back on). A model you load by name or folder, such as one of LM Studio's, stays in the
-  menus under Your models until a start with it fails or its folder goes. **Choose a Model on
+  menus under On this Mac: one by name until a start with it fails, a folder or file until
+  it's gone from the disk. **Choose a Model on
   This Mac…** in the menus (and **Choose…** in Settings) picks a model folder or .gguf in Finder,
   starting in LM Studio's models, and says at once if Kapitsa can't run it (by its config.json). Settings has the rest
   (a model by name or folder, context, slots).

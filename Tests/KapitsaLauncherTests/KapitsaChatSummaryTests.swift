@@ -121,6 +121,24 @@ final class KapitsaChatSummaryTests: XCTestCase {
         XCTAssertFalse(summary.contains("!["))
     }
 
+    func testASeparateSummaryKeepsAnUnrelatedFileOfItsNameButReplacesItsOwn() throws {
+        let folder = try temporaryFolder()
+        let url = folder.appendingPathComponent("Warm chat.md")
+        let mine = folder.appendingPathComponent("Warm chat – Summary.md")
+        try "My own notes".write(to: mine, atomically: true, encoding: .utf8)
+        let options = KapitsaChatExport.Options(includeSummary: true, includeConversation: true, separateFiles: true)
+        let summary = KapitsaChatSummary(text: "Funchal wins.", model: "qwen")
+
+        let written = try KapitsaChatExport.write(conversation(), to: url, options: options, summary: summary)
+        XCTAssertEqual(try String(contentsOf: mine, encoding: .utf8), "My own notes")
+        XCTAssertEqual(written.last, folder.appendingPathComponent("Warm chat – Summary 2.md"))
+
+        // Exporting again over that export: the save panel confirmed replacing it, summary and all.
+        try FileManager.default.removeItem(at: written.last!)
+        let again = try KapitsaChatExport.write(conversation(), to: url, options: options, summary: summary)
+        XCTAssertEqual(again.last, mine)
+    }
+
     func testSummaryOnlyIsOneFileWithoutTheConversation() throws {
         let url = try temporaryFolder().appendingPathComponent("Only.md")
         let options = KapitsaChatExport.Options(includeSummary: true, includeConversation: false, separateFiles: true)

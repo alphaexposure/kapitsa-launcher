@@ -142,4 +142,37 @@ final class KapitsaChatLibraryTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: library.url(for: id).path))
         XCTAssertTrue(library.summaries.isEmpty)
     }
+
+    func testAnUnreadableChatIsCopiedBeforeItCanBeReplaced() throws {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let store = KapitsaChatStore(url: folder.appendingPathComponent(UUID().uuidString + ".json"))
+        // A thinking level a newer launcher might write.
+        let newer = Data(#"{"messages":[{"id":"\#(UUID().uuidString)","role":"user","text":"Hi","thinking":"ultra"}]}"#.utf8)
+        try newer.write(to: store.url)
+
+        XCTAssertTrue(store.loadDocument().messages.isEmpty)
+        XCTAssertEqual(try Data(contentsOf: store.unreadableCopyURL), newer)
+        store.save(KapitsaChatStore.Document(messages: [KapitsaChatMessage(role: .user, text: "New")]))
+        XCTAssertEqual(try Data(contentsOf: store.unreadableCopyURL), newer, "the copy outlives the save")
+        let library = library()
+        library.refresh()
+        XCTAssertEqual(library.summaries.count, 1, "the copy isn't listed as a chat")
+    }
+
+    func testASaveThatFailsSaysWhyAndOneThatWorksClearsIt() throws {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let blocker = root.appendingPathComponent("not a folder")
+        try Data().write(to: blocker)
+        let failed = expectation(description: "failed")
+        KapitsaChatStore(url: blocker.appendingPathComponent("chat.json")).save(KapitsaChatStore.Document()) { problem in
+            XCTAssertTrue(problem?.hasPrefix("This chat couldn't be saved") == true)
+            failed.fulfill()
+        }
+        let saved = expectation(description: "saved")
+        KapitsaChatStore(url: root.appendingPathComponent("chat.json")).save(KapitsaChatStore.Document()) { problem in
+            XCTAssertNil(problem)
+            saved.fulfill()
+        }
+        wait(for: [failed, saved], timeout: 5)
+    }
 }

@@ -177,6 +177,9 @@ struct KapitsaChatExport: Equatable {
         let fileName = url.lastPathComponent
         let images = imagesFolderName(forMarkdownNamed: fileName)
         let summary = options.includeSummary ? summary : nil
+        // Exporting over an earlier export replaces its summary too; otherwise a file that
+        // happens to have the summary's name is kept, and the summary gets a number.
+        let replacingEarlierExport = FileManager.default.fileExists(atPath: url.path)
         guard options.savesSummarySeparately, let summary else {
             try KapitsaChatExport(messages: messages, includeThinking: options.includeThinking, summary: summary,
                                   includeConversation: options.includeConversation || summary == nil,
@@ -191,7 +194,15 @@ struct KapitsaChatExport: Equatable {
                               includeSideQuestions: options.includeSideQuestions,
                               exportedAt: exportedAt, imagesFolderName: images, timeZone: timeZone)
             .write(to: url)
-        let summaryURL = url.deletingLastPathComponent().appendingPathComponent(summaryFileName(forMarkdownNamed: fileName))
+        var summaryURL = url.deletingLastPathComponent().appendingPathComponent(summaryFileName(forMarkdownNamed: fileName))
+        if !replacingEarlierExport {
+            let base = summaryURL.deletingPathExtension().lastPathComponent
+            var number = 2
+            while FileManager.default.fileExists(atPath: summaryURL.path) {
+                summaryURL = summaryURL.deletingLastPathComponent().appendingPathComponent("\(base) \(number).md")
+                number += 1
+            }
+        }
         try KapitsaChatExport(messages: messages, summary: summary, includeConversation: false,
                               fullConversationFileName: fileName, includeTopicTags: options.includeTopicTags,
                               topicThemes: topicThemes, exportedAt: exportedAt, timeZone: timeZone)

@@ -70,9 +70,16 @@ final class KapitsaProcessController: ObservableObject {
     private var hasReachedReady = false
     private var quitCompletion: (() -> Void)?
     private var shutdownTimer: Timer?
+    /// The owned process has exited, and its output has ended (both are waited for, so the last
+    /// lines it printed, often why it failed, reach the log).
+    private var processExited = false
+    private var outputEnded = false
     private let now: () -> Date
     private let runProcess: ProcessRunner
     private let stopProcess: ProcessStopper
+    private let forceStopProcess: ProcessStopper
+    /// How long a stop waits before saying it's slow or, while quitting, forcing the process to quit.
+    private let stopGracePeriod: TimeInterval
     private let statusClient: KapitsaStatusFetching
     private let portChecker: KapitsaPortChecking
     private let keyStore: KapitsaAPIKeyStoring
@@ -93,6 +100,8 @@ final class KapitsaProcessController: ObservableObject {
         executable: KapitsaExecutable?,
         runProcess: @escaping ProcessRunner,
         stopProcess: @escaping ProcessStopper = { if $0.isRunning { $0.terminate() } },
+        forceStopProcess: @escaping ProcessStopper = { if $0.isRunning { kill($0.processIdentifier, SIGKILL) } },
+        stopGracePeriod: TimeInterval = 10,
         statusClient: KapitsaStatusFetching = KapitsaStatusClient(),
         portChecker: KapitsaPortChecking = KapitsaPortChecker(),
         keyStore: KapitsaAPIKeyStoring = KapitsaAPIKeyStore(),
@@ -104,6 +113,8 @@ final class KapitsaProcessController: ObservableObject {
         self.executable = executable
         self.runProcess = runProcess
         self.stopProcess = stopProcess
+        self.forceStopProcess = forceStopProcess
+        self.stopGracePeriod = stopGracePeriod
         self.statusClient = statusClient
         self.portChecker = portChecker
         self.keyStore = keyStore
@@ -118,11 +129,7 @@ final class KapitsaProcessController: ObservableObject {
               let activeConfiguration else { return nil }
         var components = URLComponents()
         components.scheme = "http"
-        switch activeConfiguration.host {
-        case "0.0.0.0": components.host = "127.0.0.1"
-        case "::": components.host = "::1"
-        default: components.host = activeConfiguration.host
-        }
+        components.host = activeConfiguration.host == "0.0.0.0" ? "127.0.0.1" : activeConfiguration.host
         components.port = activeConfiguration.port
         components.path = "/"
         return components.url
@@ -197,7 +204,13 @@ final class KapitsaProcessController: ObservableObject {
         process.terminationHandler = { [weak self] _ in
             DispatchQueue.main.async {
                 guard let self, self.ownedProcess.map(ObjectIdentifier.init) == identity else { return }
-                self.handleProcessExit()
+                self.processExited = true
+                self.finishExitOnceOutputEnds()
+                // A process Kapitsa started may hold the output open after it exits; don't wait on it long.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                    guard let self, self.ownedProcess.map(ObjectIdentifier.init) == identity else { return }
+                    self.handleProcessExit()
+                }
             }
         }
 
@@ -214,12 +227,20 @@ final class KapitsaProcessController: ObservableObject {
             recentRequests = []
             totals = KapitsaSessionTotals()
             engine = KapitsaEngineInfo()
+            processExited = false
+            outputEnded = false
             pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
                 let data = handle.availableData
-                guard !data.isEmpty else { return }
+                // Empty once the output has ended.
+                if data.isEmpty { handle.readabilityHandler = nil }
                 DispatchQueue.main.async {
                     guard let self, self.ownedProcess.map(ObjectIdentifier.init) == identity else { return }
-                    self.appendLog(data)
+                    if data.isEmpty {
+                        self.outputEnded = true
+                        self.finishExitOnceOutputEnds()
+                    } else {
+                        self.appendLog(data)
+                    }
                 }
             }
             pipe.fileHandleForWriting.closeFile()
@@ -241,10 +262,21 @@ final class KapitsaProcessController: ObservableObject {
         isStopping = true
         shutdownMessage = "Stopping Kapitsa and releasing engine resources…"
         stopProcess(process)
+        scheduleShutdownTimer()
+    }
+
+    /// After the grace period, explains the wait or, while quitting, forces the owned process to
+    /// quit: quitting the app, and logging out, would otherwise wait on it for ever.
+    private func scheduleShutdownTimer() {
         shutdownTimer?.invalidate()
-        shutdownTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: false) { [weak self] _ in
-            guard let self, self.isStopping else { return }
-            self.shutdownMessage = "Kapitsa is still shutting down. Waiting for the owned process to exit."
+        shutdownTimer = Timer.scheduledTimer(withTimeInterval: stopGracePeriod, repeats: false) { [weak self] _ in
+            guard let self, self.isStopping, let process = self.ownedProcess else { return }
+            if self.quitCompletion != nil {
+                self.shutdownMessage = "Kapitsa didn't stop in time, so it was forced to quit."
+                self.forceStopProcess(process)
+            } else {
+                self.shutdownMessage = "Kapitsa is still shutting down. Waiting for the owned process to exit."
+            }
         }
     }
 
@@ -262,8 +294,12 @@ final class KapitsaProcessController: ObservableObject {
         guard state.isRunning else { return false }
         restartPending = false
         quitCompletion = completion
-        stop()
+        if isStopping { scheduleShutdownTimer() } else { stop() }
         return true
+    }
+
+    private func finishExitOnceOutputEnds() {
+        if processExited && outputEnded { handleProcessExit() }
     }
 
     /// Applies the transition after the owned child exits. Exposed for process-free tests.
@@ -279,8 +315,9 @@ final class KapitsaProcessController: ObservableObject {
         pendingLogText = ""
         if !hasReachedReady && !isStopping && quitCompletion == nil && !restartPending {
             launchErrorMessage = "Kapitsa stopped before it was ready. Check the logs for details."
-            // A model by name or folder that doesn't load leaves the menus.
-            if let model = activeConfiguration?.model { KapitsaKnownModels.forget(model) }
+            // A model by name that doesn't load leaves the menus. A folder or file stays, since
+            // the failure may pass (memory, a download); it leaves once it's gone from the disk.
+            if let model = activeConfiguration?.model, !KapitsaKnownModels.isPath(model) { KapitsaKnownModels.forget(model) }
         }
         ownedProcess = nil
         activeConfiguration = nil

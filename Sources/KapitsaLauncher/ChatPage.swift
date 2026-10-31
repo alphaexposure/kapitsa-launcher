@@ -554,6 +554,9 @@ struct ChatPage: View, Equatable {
             if let error = chat.attachmentError {
                 Notice(error, symbol: "exclamationmark.triangle", isError: true)
             }
+            if let error = chat.saveError {
+                Notice(error, symbol: "externaldrive.badge.exclamationmark", isError: true)
+            }
             ChatInputRow(chat: chat, canConnect: server.connection != nil,
                          onAttach: chooseFiles, onSend: send)
         }

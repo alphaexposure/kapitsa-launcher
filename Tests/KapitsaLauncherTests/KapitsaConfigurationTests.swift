@@ -13,7 +13,7 @@ final class KapitsaConfigurationTests: XCTestCase {
     }
 
     func testAcceptsKapitsaModelForms() {
-        for model in ["27b", "35b:8bit", "qwen3.8-27b:4bit", "org/name@main", "/Users/me/model", "~/m.gguf"] {
+        for model in ["27b", "35b:8bit", "qwen3.8-27b:4bit", "org/name@main", "/Users/me/model", "~/m.gguf", "/Volumes/My Drive/models/x", "~/My Models/m.gguf"] {
             var configuration = KapitsaConfiguration()
             configuration.model = model
             XCTAssertNil(configuration.validationError, model)
@@ -26,6 +26,8 @@ final class KapitsaConfigurationTests: XCTestCase {
         XCTAssertNotNil(configuration.validationError)
         configuration.model = "27b extra"
         XCTAssertNotNil(configuration.validationError)
+        configuration.model = "/Users/me/x\n--host"
+        XCTAssertNotNil(configuration.validationError, "a path can hold spaces, not line breaks")
         configuration = KapitsaConfiguration()
         configuration.modelID = "-x"
         XCTAssertNotNil(configuration.validationError)

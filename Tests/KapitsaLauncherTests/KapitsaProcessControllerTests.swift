@@ -10,13 +10,17 @@ final class KapitsaProcessControllerTests: XCTestCase {
         stopProcess: @escaping KapitsaProcessController.ProcessStopper,
         statusClient: KapitsaStatusFetching = FakeStatusClient(),
         portChecker: KapitsaPortChecking = FakePortChecker(),
-        keyStore: KapitsaAPIKeyStoring = FakeKeyStore()
+        keyStore: KapitsaAPIKeyStoring = FakeKeyStore(),
+        forceStopProcess: @escaping KapitsaProcessController.ProcessStopper = { _ in },
+        stopGracePeriod: TimeInterval = 10
     ) -> KapitsaProcessController {
         KapitsaProcessController(
             configuration: KapitsaConfiguration(),
             executable: KapitsaExecutable(path: "/opt/homebrew/bin/kapitsa"),
             runProcess: runProcess,
             stopProcess: stopProcess,
+            forceStopProcess: forceStopProcess,
+            stopGracePeriod: stopGracePeriod,
             statusClient: statusClient,
             portChecker: portChecker,
             keyStore: keyStore
@@ -329,6 +333,54 @@ final class KapitsaProcessControllerTests: XCTestCase {
         XCTAssertEqual(completionCount, 1)
         XCTAssertEqual(runs, 1)
         XCTAssertEqual(controller.state, .stopped)
+    }
+
+    func testQuitForcesAProcessThatWontStopButAPlainStopOnlyWaits() {
+        var forced = 0
+        let quitting = makeController(runProcess: { _ in 1 }, stopProcess: { _ in },
+                                      forceStopProcess: { _ in forced += 1 }, stopGracePeriod: 0.05)
+        quitting.start()
+        XCTAssertTrue(quitting.stopBeforeQuit {})
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        XCTAssertEqual(forced, 1)
+
+        let stopping = makeController(runProcess: { _ in 2 }, stopProcess: { _ in },
+                                      forceStopProcess: { _ in forced += 1 }, stopGracePeriod: 0.05)
+        stopping.start()
+        stopping.stop()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        XCTAssertEqual(forced, 1, "only quitting forces it")
+        XCTAssertEqual(stopping.shutdownMessage, "Kapitsa is still shutting down. Waiting for the owned process to exit.")
+    }
+
+    func testTheLastLinesPrintedBeforeAnExitReachTheLog() {
+        // A real short-lived process stands in for Kapitsa failing at startup.
+        let controller = makeController(runProcess: { process in
+            process.executableURL = URL(fileURLWithPath: "/bin/echo")
+            process.arguments = ["unsupported_model: llama"]
+            try process.run()
+            return process.processIdentifier
+        }, stopProcess: { _ in })
+        controller.start()
+        let deadline = Date().addingTimeInterval(5)
+        while controller.state.isRunning && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        XCTAssertEqual(controller.state, .stopped)
+        XCTAssertTrue(controller.logs.contains("unsupported_model: llama"), controller.logs)
+        XCTAssertNotNil(controller.launchErrorMessage)
+    }
+
+    func testAFailedStartForgetsAModelByNameButNotAFolder() {
+        let defaults = UserDefaults.standard
+        let saved = defaults.stringArray(forKey: "KapitsaLauncher.knownModels")
+        defer { defaults.set(saved, forKey: "KapitsaLauncher.knownModels") }
+        defaults.set(["/Users/me/models/x", "someone/typo"], forKey: "KapitsaLauncher.knownModels")
+        for model in ["/Users/me/models/x", "someone/typo"] {
+            let controller = makeController(runProcess: { _ in 3 }, stopProcess: { _ in })
+            controller.configuration.model = model
+            controller.start()
+            controller.handleProcessExit()
+        }
+        XCTAssertEqual(defaults.stringArray(forKey: "KapitsaLauncher.knownModels"), ["/Users/me/models/x"])
     }
 
     func testKeyUsesEnvironmentAndStatusAuthorizationWithoutAppearingInArgumentsOrLogs() {

@@ -16,6 +16,8 @@ final class KapitsaAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Chats are saved in the background; finish those saves first.
+        KapitsaChatStore.waitForWrites()
         guard let controller = KapitsaAppCoordinator.shared.controller else { return .terminateNow }
         let waiting = controller.stopBeforeQuit {
             sender.reply(toApplicationShouldTerminate: true)

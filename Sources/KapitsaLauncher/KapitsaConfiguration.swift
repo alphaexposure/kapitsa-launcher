@@ -117,13 +117,15 @@ struct KapitsaConfiguration: Codable, Equatable {
     /// This Mac's memory in GB, as Apple counts it (32 for a 32 GB Mac).
     static var physicalMemoryGB: Int { Int(ProcessInfo.processInfo.physicalMemory >> 30) }
 
-    /// Whether the server only listens on this Mac.
-    var isLocalHost: Bool { ["127.0.0.1", "localhost", "::1"].contains(host) }
+    /// Whether the server only listens on this Mac. Hosts are IPv4 (the port check binds IPv4).
+    var isLocalHost: Bool { ["127.0.0.1", "localhost"].contains(host) }
 
     var validationError: String? {
         // Values become separate arguments, never shell text; a leading hyphen would read as an option.
-        if model.contains(where: { $0.isWhitespace }) || model.hasPrefix("-") {
-            return "Model cannot contain whitespace or start with a hyphen."
+        // A path may hold spaces (`/Volumes/My Drive/…`), being one argument; a name can't.
+        let isPath = model.hasPrefix("/") || model.hasPrefix("~") || model.hasPrefix(".")
+        if model.hasPrefix("-") || model.contains(where: { isPath ? $0.isNewline : $0.isWhitespace }) {
+            return isPath ? "The model's path cannot contain a line break." : "Model cannot contain whitespace or start with a hyphen."
         }
         if modelID.contains(where: { $0.isWhitespace }) || modelID.hasPrefix("-") {
             return "API model name cannot contain whitespace or start with a hyphen."

@@ -119,6 +119,8 @@ final class KapitsaChatLibrary: ObservableObject {
             controller.onStreamingChange = nil
             streaming.remove(id)
         }
+        // A save still being written would bring the file back.
+        KapitsaChatStore.waitForWrites()
         trash(url(for: id))
         summaries.removeAll { $0.id == id }
         saveIndex()
@@ -158,6 +160,8 @@ final class KapitsaChatLibrary: ObservableObject {
 
     /// Brings the index up to date with the chat files.
     func refresh() {
+        // A new chat's first save may still be on its way to the disk.
+        KapitsaChatStore.waitForWrites()
         let cached = Dictionary(loadIndex().map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
         var summaries: [Summary] = []
