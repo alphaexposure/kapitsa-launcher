@@ -150,7 +150,11 @@ A native macOS app for starting, stopping and monitoring a local
   - A **Latest chat reply** panel: prompt, cached and output tokens, prefill and decode time,
     speeds and tokens per draft cycle. Switch it to **Any request** to include the launcher's
     short background requests for the topic index, and export summaries, each labelled.
-- **Downloaded models** with their size on disk, and the SSD prefix cache size.
+- **Downloaded models** with their size on disk, and the SSD prefix cache by model. **Clear…**
+  deletes one model's part to free space, **Clear All…** every part not in use; Kapitsa rebuilds
+  it as you chat. A part a running Kapitsa is using (whichever app started it) can't be cleared,
+  and parts left behind by a model no longer on this Mac are marked. The launcher never deletes
+  models.
 - **Server output** log: long lines wrap, a filter and All · Requests · Warnings and errors
   narrow it, problems stand out, and Copy copies the lines shown; any API key is redacted.
 - **First starts download the model:** Settings says so before you press Start (with the size

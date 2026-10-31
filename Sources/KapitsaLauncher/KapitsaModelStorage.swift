@@ -1,7 +1,7 @@
 import Foundation
 
-/// Downloaded Kapitsa models and how much space they and Kapitsa's caches use.
-/// Read-only: the launcher never moves or deletes Kapitsa data.
+/// Downloaded Kapitsa models and how much space they and Kapitsa's caches use. The launcher
+/// never moves or deletes models; the only data it deletes is the prefix cache, when asked.
 struct KapitsaModelStorage: Equatable {
     struct Model: Equatable, Identifiable {
         /// The name Kapitsa accepts, e.g. `qwen3.8-27b:4bit`.
@@ -12,9 +12,24 @@ struct KapitsaModelStorage: Equatable {
         let hasDrafter: Bool
     }
 
+    /// One model's part of the prefix cache: a folder Kapitsa names by a hash, with an
+    /// `about.txt` naming the model, and a `lock` file Kapitsa holds while it uses the folder.
+    struct PrefixCache: Equatable, Identifiable {
+        var id: String { folder.lastPathComponent }
+        let folder: URL
+        /// The model it was made for, by Kapitsa's name; nil when `about.txt` doesn't say.
+        let model: String?
+        let bytes: Int64
+        /// A running Kapitsa holds its lock, so it can't be cleared now.
+        var inUse = false
+        /// Its model's folder is gone (`kapitsa rm`, or moved), so nothing will use it again.
+        var modelIsGone = false
+    }
+
     let models: [Model]
     /// Conversations Kapitsa keeps on the SSD for instant follow-ups, also across restarts.
-    let prefixCacheBytes: Int64
+    let prefixCaches: [PrefixCache]
+    var prefixCacheBytes: Int64 { prefixCaches.reduce(0) { $0 + $1.bytes } }
 
     /// Kapitsa's data folder: `KAPITSA_HOME` when set, else `~/.cache/kapitsa`.
     static func home(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
@@ -50,7 +65,62 @@ struct KapitsaModelStorage: Equatable {
                   bytes: size(of: folder),
                   hasDrafter: FileManager.default.fileExists(atPath: folder.appendingPathComponent("dflash2").path))
         }.sorted { $0.id < $1.id }
-        return KapitsaModelStorage(models: models, prefixCacheBytes: size(of: prefixCache))
+        let caches = folders(in: prefixCache).map { folder in
+            let modelFolder = cachedModelFolder(in: folder)
+            return PrefixCache(folder: folder, model: modelFolder.map { modelName(folderName: $0.lastPathComponent) },
+                               bytes: size(of: folder), inUse: isLocked(folder),
+                               modelIsGone: modelFolder.map { !FileManager.default.fileExists(atPath: $0.path) } ?? false)
+        }.sorted { $0.bytes > $1.bytes }
+        return KapitsaModelStorage(models: models, prefixCaches: caches)
+    }
+
+    /// The model folder a prefix cache folder belongs to, from the `model: <folder>` line of its `about.txt`.
+    static func cachedModelFolder(in folder: URL) -> URL? {
+        guard let about = try? String(contentsOf: folder.appendingPathComponent("about.txt"), encoding: .utf8),
+              let line = about.split(separator: "\n").first(where: { $0.hasPrefix("model: ") }) else { return nil }
+        let path = line.dropFirst("model: ".count).trimmingCharacters(in: .whitespaces)
+        return path.isEmpty ? nil : URL(fileURLWithPath: path, isDirectory: true)
+    }
+
+    /// Whether a running Kapitsa holds the part's lock. The shared lock taken to check is let
+    /// go at once.
+    static func isLocked(_ folder: URL) -> Bool {
+        let descriptor = open(folder.appendingPathComponent("lock").path, O_RDONLY)
+        guard descriptor >= 0 else { return false }
+        defer { close(descriptor) }
+        guard flock(descriptor, LOCK_SH | LOCK_NB) == 0 else { return true }
+        flock(descriptor, LOCK_UN)
+        return false
+    }
+
+    struct ClearResult: Equatable {
+        var freedBytes: Int64 = 0
+        /// Parts a running Kapitsa is using, which are kept.
+        var inUse: [PrefixCache] = []
+        /// Why a part couldn't be deleted.
+        var problems: [String] = []
+    }
+
+    /// Deletes the prefix cache parts no Kapitsa is using; Kapitsa rebuilds them as it serves.
+    /// Each part's lock is held while it's deleted, and a part whose lock a running Kapitsa
+    /// holds (this app's or another one's) is kept.
+    static func clearPrefixCaches(_ caches: [PrefixCache]) -> ClearResult {
+        var result = ClearResult()
+        for cache in caches {
+            let descriptor = open(cache.folder.appendingPathComponent("lock").path, O_RDONLY)
+            defer { if descriptor >= 0 { close(descriptor) } }
+            if descriptor >= 0, flock(descriptor, LOCK_EX | LOCK_NB) != 0 {
+                result.inUse.append(cache)
+                continue
+            }
+            do {
+                try FileManager.default.removeItem(at: cache.folder)
+                result.freedBytes += cache.bytes
+            } catch {
+                result.problems.append(error.localizedDescription)
+            }
+        }
+        return result
     }
 
     private static func folders(in root: URL) -> [URL] {

@@ -10,6 +10,11 @@ struct SettingsPage: View {
     /// What checking a model chosen in Finder found.
     @State private var modelCheck: KapitsaModelFinder.Check?
     @State private var keyDraft = ""
+    /// The prefix cache parts the person asked to clear, waiting for them to confirm.
+    @State private var pendingClear: [KapitsaModelStorage.PrefixCache]?
+    @State private var isClearingCache = false
+    /// What clearing the prefix cache did.
+    @State private var cacheNote: String?
 
     private static let customTag = "__custom__"
 
@@ -104,6 +109,8 @@ struct SettingsPage: View {
                     installedModelsList
                 }
                 .onAppear { refreshModels() }
+                // Starting or stopping Kapitsa changes which cache part is in use.
+                .onChange(of: controller.readiness) { _, _ in refreshModels() }
                 field("Host", text: $controller.configuration.host,
                       prompt: "127.0.0.1", defaultValue: "127.0.0.1",
                       helpText: "The network address Kapitsa listens on. 127.0.0.1 allows connections from this Mac only; 0.0.0.0 serves your network.")
@@ -234,19 +241,83 @@ struct SettingsPage: View {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("SSD prefix cache").font(.callout)
-                        Text("Conversations Kapitsa keeps for instant follow-ups. It manages the size itself.")
+                        Text("Conversations Kapitsa keeps for instant follow-ups, one part per model. It manages the size itself (the SSD prefix cache setting caps it).")
                             .font(.caption).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
+                        if let cacheNote {
+                            Text(cacheNote).font(.caption).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                     Spacer(minLength: 8)
                     Text(formattedFileSize(storage.prefixCacheBytes)).font(.callout.weight(.medium)).monospacedDigit()
                     Button("Show files") { revealInFinder(KapitsaModelStorage.prefixCacheDirectory) }
                         .disabled(storage.prefixCacheBytes == 0)
+                    Button("Clear All…") { pendingClear = storage.prefixCaches.filter { !$0.inUse } }
+                        .disabled(isClearingCache || !storage.prefixCaches.contains { !$0.inUse })
                 }
                 .padding(.vertical, 9)
+                ForEach(storage.prefixCaches) { cache in
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(cache.model ?? "Unknown model").font(.caption).textSelection(.enabled)
+                            if let status = Self.status(of: cache) {
+                                Text(status).font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.leading, 12)
+                        Spacer(minLength: 8)
+                        Text(formattedFileSize(cache.bytes)).font(.caption.weight(.medium)).monospacedDigit()
+                        Button("Clear…") { pendingClear = [cache] }
+                            .controlSize(.small)
+                            .disabled(cache.inUse || isClearingCache)
+                            .help(cache.inUse ? "A running Kapitsa is using it" : "Delete this model's part of the cache")
+                    }
+                    .padding(.bottom, 7)
+                }
+                .confirmationDialog(clearTitle, isPresented: Binding(get: { pendingClear != nil }, set: { if !$0 { pendingClear = nil } })) {
+                    Button("Clear", role: .destructive) {
+                        if let caches = pendingClear { clearPrefixCache(caches) }
+                        pendingClear = nil
+                    }
+                } message: {
+                    Text("Kapitsa keeps recent conversations here so follow-ups start at once, also after a restart. It rebuilds the cache as you chat, so each chat's next reply reads the chat again first.")
+                }
             }
             .padding(.horizontal, 14)
             .background(KapitsaTheme.inset, in: RoundedRectangle(cornerRadius: 10))
+        }
+    }
+
+    /// "Clear 23.6 GB for qwen3.6-35b-a3b:4bit?", or for all the parts not in use.
+    private var clearTitle: String {
+        let caches = pendingClear ?? []
+        let size = formattedFileSize(caches.reduce(0) { $0 + $1.bytes })
+        if caches.count == 1 { return "Clear \(size) for \(caches[0].model ?? "this model")?" }
+        return "Clear \(size) of the SSD prefix cache?"
+    }
+
+    /// In use, or left behind by a model that's gone.
+    static func status(of cache: KapitsaModelStorage.PrefixCache) -> String? {
+        if cache.inUse { return "In use by a running Kapitsa" }
+        if cache.modelIsGone { return "Model no longer on this Mac" }
+        return nil
+    }
+
+    /// Deletes the unused prefix cache parts in the background, then says what happened.
+    private func clearPrefixCache(_ caches: [KapitsaModelStorage.PrefixCache]) {
+        isClearingCache = true
+        Task {
+            let result = await Task.detached(priority: .userInitiated) { KapitsaModelStorage.clearPrefixCaches(caches) }.value
+            var note = "Cleared \(formattedFileSize(result.freedBytes))."
+            if !result.inUse.isEmpty {
+                let names = result.inUse.map { $0.model ?? "a model" }.joined(separator: ", ")
+                note += " Kept \(formattedFileSize(result.inUse.reduce(0) { $0 + $1.bytes })) in use by \(names)."
+            }
+            if let problem = result.problems.first { note += " Some couldn't be deleted: \(problem)" }
+            cacheNote = note
+            isClearingCache = false
+            refreshModels()
         }
     }
 

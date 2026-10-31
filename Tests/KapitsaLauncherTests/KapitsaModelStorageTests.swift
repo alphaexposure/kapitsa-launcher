@@ -47,12 +47,42 @@ final class KapitsaModelStorageTests: XCTestCase {
     func testMissingFoldersScanAsEmpty() {
         let storage = KapitsaModelStorage.scan(modelsRoot: root.appendingPathComponent("none"),
                                                prefixCache: root.appendingPathComponent("none"))
-        XCTAssertEqual(storage, KapitsaModelStorage(models: [], prefixCacheBytes: 0))
+        XCTAssertEqual(storage, KapitsaModelStorage(models: [], prefixCaches: []))
     }
 
     func testKapitsaHomeMovesTheDataFolder() {
         XCTAssertEqual(KapitsaModelStorage.home(environment: ["KAPITSA_HOME": "/Volumes/X/kapitsa"]).path,
                        "/Volumes/X/kapitsa")
         XCTAssertTrue(KapitsaModelStorage.home(environment: [:]).path.hasSuffix("/.cache/kapitsa"))
+    }
+
+    func testPrefixCachePartsNameTheirModelAndOnlyUnusedOnesAreCleared() throws {
+        let caches = root.appendingPathComponent("prefix-cache")
+        try write(500, to: "prefix-cache/aaa/kv/1.bin")
+        try "Kapitsa SSD prefix cache, state format 1\nmodel: /Users/me/.cache/kapitsa/models/qwen3.8-27b-4bit\n  README.md 1 2\n"
+            .write(to: caches.appendingPathComponent("aaa/about.txt"), atomically: true, encoding: .utf8)
+        try write(0, to: "prefix-cache/aaa/lock")
+        try write(80, to: "prefix-cache/bbb/kv/1.bin")
+        try write(0, to: "prefix-cache/bbb/lock")
+
+        // A running Kapitsa holds its part's lock.
+        let held = open(caches.appendingPathComponent("bbb/lock").path, O_RDONLY)
+        XCTAssertEqual(flock(held, LOCK_EX | LOCK_NB), 0)
+        defer { close(held) }
+
+        let storage = KapitsaModelStorage.scan(modelsRoot: root.appendingPathComponent("models"), prefixCache: caches)
+        XCTAssertEqual(storage.prefixCaches.map(\.model), ["qwen3.8-27b:4bit", nil])
+        XCTAssertEqual(storage.prefixCaches.last?.bytes, 80, "the largest part first")
+        XCTAssertEqual(storage.prefixCacheBytes, storage.prefixCaches.reduce(0) { $0 + $1.bytes })
+        XCTAssertEqual(storage.prefixCaches.map(\.inUse), [false, true])
+        XCTAssertEqual(storage.prefixCaches.map(\.modelIsGone), [true, false], "/Users/me/… isn't on this Mac")
+        XCTAssertEqual(SettingsPage.status(of: storage.prefixCaches[0]), "Model no longer on this Mac")
+        XCTAssertEqual(SettingsPage.status(of: storage.prefixCaches[1]), "In use by a running Kapitsa")
+
+        let result = KapitsaModelStorage.clearPrefixCaches(storage.prefixCaches)
+        XCTAssertEqual(result.inUse.map(\.id), ["bbb"])
+        XCTAssertTrue(result.problems.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: caches.appendingPathComponent("aaa").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: caches.appendingPathComponent("bbb/kv/1.bin").path))
     }
 }
