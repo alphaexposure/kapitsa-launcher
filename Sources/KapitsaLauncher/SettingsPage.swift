@@ -206,7 +206,12 @@ struct SettingsPage: View {
 
     /// A model folder or .gguf from Finder: used when Kapitsa can run it, explained when not.
     private func chooseModel() {
-        guard let url = KapitsaModelFinder.choose() else { return }
+        guard let chosen = KapitsaModelFinder.choose() else { return }
+        let url: URL
+        switch KapitsaModelFinder.resolve(chosen) {
+        case .success(let found): url = found
+        case .failure(.problem(let text)): modelCheck = .problem(text); return
+        }
         let check = KapitsaModelFinder.check(url)
         modelCheck = check
         if case .problem = check { return }

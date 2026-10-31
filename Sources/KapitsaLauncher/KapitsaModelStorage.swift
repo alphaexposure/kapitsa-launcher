@@ -30,9 +30,12 @@ struct KapitsaModelStorage: Equatable {
 
     /// Kapitsa names each catalog model's folder `<model>-<variant>`, which it accepts as
     /// `<model>:<variant>`, and a Hugging Face repo's `<org>--<name>`, accepted as `<org>/<name>`.
+    /// Any other folder, such as a converted GGUF (`qwen3.8-27b-ud-q4_k_m`), goes by its name.
     static func modelName(folderName: String) -> String {
         if let separator = folderName.range(of: "--") { return folderName.replacingCharacters(in: separator, with: "/") }
-        guard let hyphen = folderName.lastIndex(of: "-") else { return folderName }
+        guard let hyphen = folderName.lastIndex(of: "-"),
+              KapitsaConfiguration.catalogModels.contains(where: { $0.id == String(folderName[..<hyphen]) })
+        else { return folderName }
         return folderName[..<hyphen] + ":" + folderName[folderName.index(after: hyphen)...]
     }
 

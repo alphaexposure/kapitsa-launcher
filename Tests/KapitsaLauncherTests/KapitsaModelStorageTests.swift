@@ -26,6 +26,7 @@ final class KapitsaModelStorageTests: XCTestCase {
         XCTAssertEqual(KapitsaModelStorage.modelName(folderName: "flint"), "flint")
         XCTAssertEqual(KapitsaModelStorage.modelName(folderName: "lmstudio-community--Qwen3.5-2B-MLX-4bit"),
                        "lmstudio-community/Qwen3.5-2B-MLX-4bit", "a Hugging Face repo")
+        XCTAssertEqual(KapitsaModelStorage.modelName(folderName: "qwen3.8-27b-ud-q4_k_m"), "qwen3.8-27b-ud-q4_k_m", "a converted GGUF")
     }
 
     func testScanSizesModelsAndPrefixCache() throws {

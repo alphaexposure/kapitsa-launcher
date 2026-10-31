@@ -153,7 +153,12 @@ struct ModelSwitcher: View {
 
     /// A model folder or .gguf from Finder, checked first, then chosen as from the menu.
     private func chooseInFinder() {
-        guard let url = KapitsaModelFinder.choose() else { return }
+        guard let chosen = KapitsaModelFinder.choose() else { return }
+        let url: URL
+        switch KapitsaModelFinder.resolve(chosen) {
+        case .success(let found): url = found
+        case .failure(.problem(let text)): chooseProblem = text; return
+        }
         if case .problem(let text) = KapitsaModelFinder.check(url) {
             chooseProblem = text
             return
