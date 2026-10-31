@@ -127,9 +127,44 @@ final class KapitsaKnownModelsTests: XCTestCase {
         XCTAssertEqual(KapitsaKnownModels.title("/Users/me/x/Qwen3.5-9B-MLX-4bit").components(separatedBy: " · ").first, "Qwen3.5-9B-MLX-4bit")
     }
 
-    func testOtherModelsLeaveOutDownloadedAndCatalogOnes() {
-        XCTAssertEqual(ModelSwitcher.otherModels(known: ["a/b", "/x/y", "qwen3.8-27b:4bit"], current: "a/b",
-                                                 installed: ["qwen3.8-27b:4bit"]), ["a/b", "/x/y"])
-        XCTAssertEqual(ModelSwitcher.otherModels(known: [], current: "35b", installed: []), [])
+    func testEachModelIsListedOnce() {
+        let entries = ModelMenu.entries(
+            installed: ["lmstudio-community/Qwen3.5-2B-MLX-4bit", "qwen3.6-35b-a3b:4bit", "qwen3.8-27b:8bit"],
+            known: ["/Users/me/.lmstudio/models/org/Qwen3.5-9B-MLX-4bit", "lmstudio-community/Qwen3.5-2B-MLX-4bit"],
+            current: "35b", physicalMemoryGB: 32)
+        XCTAssertEqual(entries.onThisMac.map(\.model), [
+            "lmstudio-community/Qwen3.5-2B-MLX-4bit", "35b", "qwen3.8-27b:8bit", "/Users/me/.lmstudio/models/org/Qwen3.5-9B-MLX-4bit",
+        ], "the standard download goes by its catalog name; a repo both downloaded and remembered once")
+        XCTAssertEqual(entries.onThisMac[1].title, "Qwen3.6 35B-A3B — MoE, 3B active · 4-bit")
+        XCTAssertEqual(entries.onThisMac[2].title, "Qwen3.8 27B — Dense · 8bit")
+        XCTAssertEqual(entries.onThisMac[0].title, "Qwen3.5-2B-MLX-4bit · lmstudio-community")
+        XCTAssertFalse(entries.catalog.contains { ["35b", "27b"].contains($0.model) }, "downloaded models aren't offered again")
+        XCTAssertTrue(entries.catalog.contains { $0.model == "9b" })
+    }
+
+    func testTheSameModelByAnotherNameIsTheSame() {
+        XCTAssertTrue(ModelMenu.isSame("35b", "qwen3.6-35b-a3b:4bit"))
+        XCTAssertTrue(ModelMenu.isSame("35b", "35b:4bit"))
+        XCTAssertFalse(ModelMenu.isSame("35b", "35b:8bit"))
+        XCTAssertFalse(ModelMenu.isSame("35b", "27b"))
+        XCTAssertFalse(ModelMenu.isSame("", "35b"))
+    }
+}
+
+final class ModelNamingTests: XCTestCase {
+    func testTheChipShowsAShortName() {
+        XCTAssertEqual(ModelSwitcher.shortName(of: "/Users/me/.lmstudio/models/lmstudio-community/Qwen3.5-9B-MLX-4bit"), "Qwen3.5-9B-MLX-4bit")
+        XCTAssertEqual(ModelSwitcher.shortName(of: "lmstudio-community/Qwen3.5-2B-MLX-4bit"), "Qwen3.5-2B-MLX-4bit")
+        XCTAssertEqual(ModelSwitcher.shortName(of: "35b"), "Qwen3.6 35B-A3B")
+        XCTAssertEqual(ModelSwitcher.shortName(of: "qwen3.6-35b-a3b"), "qwen3.6-35b-a3b")
+    }
+
+    func testThinkingFollowsTheSettingByOneNameWhetherRunningOrNot() {
+        XCTAssertEqual(KapitsaThinkingChoice.modelName(forSetting: "35b"), "qwen3.6-35b-a3b", "as Kapitsa names it when running")
+        XCTAssertEqual(KapitsaThinkingChoice.modelName(forSetting: "35b:8bit"), "qwen3.6-35b-a3b")
+        XCTAssertEqual(KapitsaThinkingChoice.modelName(forSetting: "qwen3.8-27b:4bit"), "qwen3.8-27b")
+        XCTAssertEqual(KapitsaThinkingChoice.modelName(forSetting: "lmstudio-community/Qwen3.5-2B-MLX-4bit"), "lmstudio-community/Qwen3.5-2B-MLX-4bit")
+        XCTAssertEqual(KapitsaThinkingChoice.modelName(forSetting: "/x/Qwen3.5-9B"), "/x/Qwen3.5-9B")
+        XCTAssertNil(KapitsaThinkingChoice.modelName(forSetting: ""), "the best model is Kapitsa's to name")
     }
 }

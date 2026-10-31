@@ -64,12 +64,15 @@ struct ContentView: View {
         case .chat:
             // The conversation has its own scroll view, with the message box pinned below it.
             let shown = shownChat ?? currentChat
-            // The thinking buttons follow the model running, else the one that ran last.
-            let thinkingModel = controller.engine.model ?? UserDefaults.standard.string(forKey: KapitsaThinkingChoice.lastModelKey)
+            // The thinking buttons follow the model running or chosen, by the same name either way,
+            // else (the best model, stopped) the one that ran last.
+            let modelSetting = controller.state.isRunning ? controller.runningModelSetting : controller.configuration.model
+            let thinkingModel = KapitsaThinkingChoice.modelName(forSetting: modelSetting) ?? controller.engine.model
+                ?? UserDefaults.standard.string(forKey: KapitsaThinkingChoice.lastModelKey)
             ChatPage(server: ChatServerFacts(connection: controller.chatConnection, isRunning: controller.state.isRunning,
                                              contextTokens: controller.engine.contextTokens, thinkingModel: thinkingModel,
                                              thinking: thinkingModel.map {
-                                                 KapitsaThinkingOptions.forModel($0, configured: controller.runningModelSetting)
+                                                 KapitsaThinkingOptions.forModel($0, configured: modelSetting)
                                              } ?? .onOff,
                                              download: controller.state.isRunning ? controller.engine.download : nil),
                      processController: controller,

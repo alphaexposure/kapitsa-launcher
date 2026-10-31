@@ -14,12 +14,16 @@ struct SettingsPage: View {
     private static let customTag = "__custom__"
 
     /// Every name the picker offers: the automatic choice, downloaded models, then the catalog.
-    private var pickerNames: Set<String> {
-        Set([""] + installedModels + KapitsaKnownModels.all() + KapitsaConfiguration.catalogModels.map(\.name))
+    /// The picker's row for the model set: the same model by another name counts (`qwen3.6-35b-a3b:4bit` is `35b`'s row).
+    private var pickerTag: String? {
+        let entries = ModelMenu.entries(installed: installedModels, known: KapitsaKnownModels.all(), current: "")
+        let model = controller.configuration.model
+        if model.isEmpty { return "" }
+        return (entries.onThisMac + entries.catalog).first { ModelMenu.isSame($0.model, model) }?.model
     }
 
     private var showsCustomModel: Bool {
-        useCustomModel || !pickerNames.contains(controller.configuration.model)
+        useCustomModel || pickerTag == nil
     }
 
     var body: some View {
@@ -43,33 +47,21 @@ struct SettingsPage: View {
                         SettingLabel("Model", defaultValue: "Best model for this Mac",
                                      helpText: "Choose a downloaded model or one from Kapitsa's catalog. A model that isn't downloaded yet is downloaded the first time you start it, which can be many gigabytes. Other model… takes a Hugging Face repo, a model folder or a .gguf file.")
                         Picker("Model", selection: Binding(
-                            get: { showsCustomModel ? Self.customTag : controller.configuration.model },
+                            get: { showsCustomModel ? Self.customTag : pickerTag ?? "" },
                             set: { value in
                                 useCustomModel = value == Self.customTag
                                 if !useCustomModel { controller.configuration.model = value }
                             }
                         )) {
                             Text("Best model for this Mac").tag("")
-                            if !installedModels.isEmpty {
-                                Section("Downloaded") {
-                                    // The precision downloaded may not be the catalog's default, so no size here.
-                                    ForEach(installedModels, id: \.self) { name in
-                                        let model = KapitsaConfiguration.catalogModel(forDownloaded: name)
-                                        Text(model.map { "\(name) — \($0.label), \($0.architecture)" } ?? name).tag(name)
-                                    }
+                            let entries = ModelMenu.entries(installed: installedModels, known: KapitsaKnownModels.all(), current: "")
+                            if !entries.onThisMac.isEmpty {
+                                Section("On this Mac") {
+                                    ForEach(entries.onThisMac, id: \.model) { Text($0.title).tag($0.model) }
                                 }
                             }
-                            let others = ModelSwitcher.otherModels(known: KapitsaKnownModels.all(), current: "", installed: installedModels)
-                            if !others.isEmpty {
-                                Section("Your models") {
-                                    ForEach(others, id: \.self) { Text(KapitsaKnownModels.title($0)).tag($0) }
-                                }
-                            }
-                            Section("Kapitsa catalog") {
-                                ForEach(KapitsaConfiguration.catalogModels, id: \.name) { model in
-                                    Text("\(model.label) (\(model.name)) — \(model.details(physicalMemoryGB: KapitsaConfiguration.physicalMemoryGB))")
-                                        .tag(model.name)
-                                }
+                            Section("Download from the catalog") {
+                                ForEach(entries.catalog, id: \.model) { Text($0.title).tag($0.model) }
                             }
                             Text("Other model…").tag(Self.customTag)
                         }

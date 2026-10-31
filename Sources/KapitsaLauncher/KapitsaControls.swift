@@ -58,10 +58,22 @@ struct ModelSwitcher: View {
     /// Switch without asking; turned back on in App settings.
     @AppStorage("KapitsaLauncher.skipModelSwitchConfirmation") private var skipConfirmation = false
 
-    /// What the menu's button says: the model running, else the one chosen.
-    private var shownName: String {
+    /// The model running, else the one chosen, in full: shown on hover.
+    private var fullName: String {
         if let model = controller.engine.model { return model }
         return Self.name(of: controller.configuration.model)
+    }
+
+    /// What the menu's button says: a short name, so a long folder path doesn't stretch the page.
+    private var shownName: String { Self.shortName(of: fullName) }
+
+    /// A folder's or repo's last part (`Qwen3.5-9B-MLX-4bit`), a catalog model's name, or the name.
+    static func shortName(of model: String) -> String {
+        if let catalog = KapitsaConfiguration.catalogModels.first(where: { $0.name == model }) { return catalog.label }
+        if model.contains("/") {
+            return model.split(separator: "/").last.map(String.init) ?? model
+        }
+        return model
     }
 
     static func name(of model: String) -> String {
@@ -72,29 +84,22 @@ struct ModelSwitcher: View {
     var body: some View {
         Menu {
             choice("", title: "Best model for this Mac")
-            if !installed.isEmpty {
-                Section("Downloaded") {
-                    ForEach(installed, id: \.self) { name in
-                        choice(name, title: KapitsaConfiguration.catalogModel(forDownloaded: name)
-                            .map { "\(name) — \($0.label), \($0.architecture)" } ?? name)
-                    }
+            let entries = ModelMenu.entries(installed: installed, known: known, current: controller.configuration.model)
+            if !entries.onThisMac.isEmpty {
+                Section("On this Mac") {
+                    ForEach(entries.onThisMac, id: \.model) { choice($0.model, title: $0.title) }
                 }
             }
             Button("Choose a Model on This Mac…", action: chooseInFinder)
-            Section("Kapitsa catalog") {
-                ForEach(KapitsaConfiguration.catalogModels, id: \.name) { model in
-                    choice(model.name, title: "\(model.label) (\(model.name)) — \(model.details(physicalMemoryGB: KapitsaConfiguration.physicalMemoryGB))")
-                }
-            }
-            let others = Self.otherModels(known: known, current: controller.configuration.model, installed: installed)
-            if !others.isEmpty {
-                Section("Your models") {
-                    ForEach(others, id: \.self) { model in choice(model, title: KapitsaKnownModels.title(model)) }
+            if !entries.catalog.isEmpty {
+                Section("Download from the catalog") {
+                    ForEach(entries.catalog, id: \.model) { choice($0.model, title: $0.title) }
                 }
             }
         } label: {
             HStack(spacing: 4) {
-                Text(shownName).lineLimit(1)
+                Text(shownName).lineLimit(1).truncationMode(.middle)
+                    .frame(maxWidth: isLarge ? 460 : 220, alignment: .leading)
                 Image(systemName: "chevron.down").font(.system(size: isLarge ? 11 : 8, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
@@ -115,9 +120,9 @@ struct ModelSwitcher: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .disabled(isBusy || controller.isStopping)
-        .help(isBusy ? "Wait for the reply to finish before switching models"
+        .help(fullName + "\n" + (isBusy ? "Wait for the reply to finish before switching models"
               : controller.state.isRunning ? "Switch models: Kapitsa restarts and loads the one you choose"
-              : "Choose the model Kapitsa starts with")
+              : "Choose the model Kapitsa starts with"))
         .accessibilityLabel("Model: \(shownName)")
         .onAppear {
             installed = KapitsaModelStorage.installedModels()
@@ -141,16 +146,6 @@ struct ModelSwitcher: View {
         }
     }
 
-    /// Models used by name or folder that loaded before, and the one set in Settings, without
-    /// the ones listed as downloaded or in the catalog, each once.
-    static func otherModels(known: [String], current: String, installed: [String]) -> [String] {
-        var seen = Set<String>()
-        return (known + [current]).filter { model in
-            !model.isEmpty && !installed.contains(model) && !KapitsaConfiguration.catalogModels.contains { $0.name == model }
-                && seen.insert(model).inserted
-        }
-    }
-
     /// A model folder or .gguf from Finder, checked first, then chosen as from the menu.
     private func chooseInFinder() {
         guard let chosen = KapitsaModelFinder.choose() else { return }
@@ -167,7 +162,7 @@ struct ModelSwitcher: View {
     }
 
     private func select(_ model: String) {
-        guard model != controller.configuration.model else { return }
+        guard !ModelMenu.isSame(model, controller.configuration.model) else { return }
         if !controller.state.isRunning { controller.configuration.model = model }
         else if skipConfirmation { switchTo(model) }
         else { pending = model }
@@ -180,7 +175,65 @@ struct ModelSwitcher: View {
 
     private func choice(_ model: String, title: String) -> some View {
         Button { select(model) } label: {
-            if model == controller.configuration.model { Label(title, systemImage: "checkmark") } else { Text(title) }
+            if ModelMenu.isSame(model, controller.configuration.model) { Label(title, systemImage: "checkmark") } else { Text(title) }
         }
+    }
+}
+
+/// The models the model menus and Settings offer, each once: those on this Mac (Kapitsa's
+/// downloads, then models used by folder or name), and the catalog's others to download.
+enum ModelMenu {
+    struct Entry: Equatable {
+        /// What `--model` is given: a catalog name for its standard download (`35b`), else the
+        /// download's, repo's, folder's or file's name.
+        let model: String
+        let title: String
+    }
+
+    static func entries(installed: [String], known: [String], current: String,
+                        physicalMemoryGB: Int = KapitsaConfiguration.physicalMemoryGB) -> (onThisMac: [Entry], catalog: [Entry]) {
+        var onThisMac: [Entry] = []
+        var downloadedCatalog = Set<String>()
+        for name in installed {
+            if let catalog = KapitsaConfiguration.catalogModel(forDownloaded: name) {
+                downloadedCatalog.insert(catalog.name)
+                let variant = name.split(separator: ":").dropFirst().first.map(String.init) ?? catalog.variant
+                let isStandard = variant == catalog.variant
+                onThisMac.append(Entry(model: isStandard ? catalog.name : name,
+                                       title: "\(catalog.label) — \(catalog.architecture) · \(isStandard ? catalog.precision : variant)"))
+            } else {
+                onThisMac.append(Entry(model: name, title: title(ofOther: name)))
+            }
+        }
+        for model in known + [current] where !model.isEmpty && !onThisMac.contains(where: { isSame($0.model, model) })
+            && !KapitsaConfiguration.catalogModels.contains(where: { $0.name == model.split(separator: ":").first.map(String.init) }) {
+            onThisMac.append(Entry(model: model, title: title(ofOther: model)))
+        }
+        let catalog = KapitsaConfiguration.catalogModels.filter { !downloadedCatalog.contains($0.name) }.map {
+            Entry(model: $0.name, title: "\($0.label) (\($0.name)) — \($0.details(physicalMemoryGB: physicalMemoryGB))")
+        }
+        return (onThisMac, catalog)
+    }
+
+    /// "Qwen3.5-2B-MLX-4bit · lmstudio-community" for a repo, the folder and where it is for a path.
+    static func title(ofOther model: String) -> String {
+        if KapitsaKnownModels.isPath(model) { return KapitsaKnownModels.title(model) }
+        let parts = model.split(separator: "/", maxSplits: 1).map(String.init)
+        return parts.count == 2 ? parts[1] + " · " + parts[0] : model
+    }
+
+    /// Whether two settings run the same model: `35b` and `qwen3.6-35b-a3b:4bit`, or the same name.
+    static func isSame(_ a: String, _ b: String) -> Bool {
+        if a == b { return true }
+        guard let left = KapitsaThinkingChoice.modelName(forSetting: a), let right = KapitsaThinkingChoice.modelName(forSetting: b)
+        else { return false }
+        return left == right && variant(of: a) == variant(of: b)
+    }
+
+    /// A setting's precision, the catalog's default when it names none.
+    private static func variant(of setting: String) -> String? {
+        let parts = setting.split(separator: ":").map(String.init)
+        if parts.count > 1 { return parts[1] }
+        return KapitsaConfiguration.catalogModels.first { $0.name == setting }?.variant
     }
 }

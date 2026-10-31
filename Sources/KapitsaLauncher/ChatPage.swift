@@ -350,6 +350,7 @@ struct ChatPage: View, Equatable {
             if server.thinking.changeRereadsChat {
                 Label("Next reply re-reads the chat", systemImage: "arrow.counterclockwise")
                     .font(.caption).foregroundStyle(KapitsaTheme.accent)
+                    .lineLimit(1).fixedSize()
                     .opacity(rereadsChat ? 1 : 0)
                     .accessibilityHidden(!rereadsChat)
                     .help("This model's thinking level sits at the start of the prompt, so after a change Kapitsa can't reuse its cache: the next reply reads the whole chat again before it starts. Switching back to \(lastReplyLevel.map { server.thinking.label($0) } ?? "the earlier level") avoids it.")

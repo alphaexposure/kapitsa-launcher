@@ -164,6 +164,17 @@ enum KapitsaThinkingChoice {
     /// only when asked, the old default, so each model starts again from its template's default.
     static func key(for model: String) -> String { "KapitsaLauncher.chatThinkingLevel." + model }
 
+    /// The name a `--model` setting goes by for its thinking buttons and saved choice, whether
+    /// Kapitsa runs or not: a catalog model's full name (`35b` → `qwen3.6-35b-a3b`), a downloaded
+    /// one without its precision, or the repo, folder or file as given. Nil for the best model,
+    /// which only Kapitsa can name.
+    static func modelName(forSetting setting: String?) -> String? {
+        guard let setting = setting?.trimmingCharacters(in: .whitespaces), !setting.isEmpty else { return nil }
+        if KapitsaKnownModels.isPath(setting) || setting.contains("/") { return setting }
+        let base = setting.split(separator: ":").first.map(String.init) ?? setting
+        return KapitsaConfiguration.catalogModels.first { $0.name == base }?.id ?? base
+    }
+
     static func saved(for model: String, defaults: UserDefaults = .standard) -> KapitsaThinkingLevel? {
         defaults.string(forKey: key(for: model)).flatMap(KapitsaThinkingLevel.init)
     }

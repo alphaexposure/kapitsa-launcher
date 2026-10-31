@@ -46,6 +46,8 @@ struct KapitsaConfiguration: Codable, Equatable {
         /// Dense, or mixture of experts with the parameters used per token.
         let architecture: String
         let precision: String
+        /// The default precision's name, as a download's folder ends: `qwen3.6-35b-a3b-4bit`.
+        let variant: String
         /// The download in GB, at the default precision.
         let downloadGB: Double
         /// The smallest Mac Kapitsa's documentation suggests, in GB of memory.
@@ -62,18 +64,18 @@ struct KapitsaConfiguration: Codable, Equatable {
     /// Kapitsa 0.2's catalog: names, architectures and download sizes from `kapitsa --help`;
     /// the smallest Mac for each from its documentation.
     static let catalogModels: [CatalogModel] = [
-        .init(name: "4b", label: "Qwen3.5 4B", id: "qwen3.5-4b", architecture: "Dense", precision: "4-bit", downloadGB: 4.6, memoryGB: 16),
-        .init(name: "9b", label: "Qwen3.5 9B", id: "qwen3.5-9b", architecture: "Dense", precision: "4-bit", downloadGB: 9.1, memoryGB: 16),
-        .init(name: "27b", label: "Qwen3.8 27B", id: "qwen3.8-27b", architecture: "Dense", precision: "4-bit", downloadGB: 20.2, memoryGB: 32),
-        .init(name: "35b", label: "Qwen3.6 35B-A3B", id: "qwen3.6-35b-a3b", architecture: "MoE, 3B active", precision: "4-bit", downloadGB: 22.1, memoryGB: 32),
-        .init(name: "flash", label: "Qwen3.8 Flash Next 180B-A7B", id: "qwen3.8-flash-next", architecture: "MoE, 7B active", precision: "4-bit", downloadGB: 105.9, memoryGB: 128),
-        .init(name: "dory", label: "Nemotron Dory 1.0 4B", id: "nemotron-labs-dory1.0-4b", architecture: "Looped dense", precision: "NVFP4", downloadGB: 3.2, memoryGB: 16),
-        .init(name: "nano-4b", label: "Nemotron 3 Nano 4B", id: "nemotron-3-nano-4b", architecture: "Hybrid Mamba-2", precision: "FP8", downloadGB: 5.3, memoryGB: 16),
-        .init(name: "nano-9b", label: "Nemotron Nano 9B v2", id: "nemotron-nano-9b-v2", architecture: "Hybrid Mamba-2", precision: "NVFP4", downloadGB: 7.8, memoryGB: 16),
-        .init(name: "lightning", label: "Nemotron 3.5 Lightning 30B-A3B", id: "nemotron-3.5-lightning", architecture: "MoE, 3B active", precision: "NVFP4", downloadGB: 22.9, memoryGB: 32),
-        .init(name: "bolt", label: "Nemotron 3.5 Bolt 74B-A9B", id: "nemotron-3.5-bolt", architecture: "MoE, 9B active", precision: "2-bit experts", downloadGB: 25.1, memoryGB: 32),
-        .init(name: "super", label: "Nemotron 3.5 Super-VL 120B-A12B", id: "nemotron-3.5-super-vl", architecture: "MoE, 12B active", precision: "NVFP4", downloadGB: 76.4, memoryGB: 96),
-        .init(name: "flint", label: "Recursive Flint 40B-A2.5B", id: "flint", architecture: "MoE, 2.5B active", precision: "4-bit", downloadGB: 22.6, memoryGB: 32),
+        .init(name: "4b", label: "Qwen3.5 4B", id: "qwen3.5-4b", architecture: "Dense", precision: "4-bit", variant: "4bit", downloadGB: 4.6, memoryGB: 16),
+        .init(name: "9b", label: "Qwen3.5 9B", id: "qwen3.5-9b", architecture: "Dense", precision: "4-bit", variant: "4bit", downloadGB: 9.1, memoryGB: 16),
+        .init(name: "27b", label: "Qwen3.8 27B", id: "qwen3.8-27b", architecture: "Dense", precision: "4-bit", variant: "4bit", downloadGB: 20.2, memoryGB: 32),
+        .init(name: "35b", label: "Qwen3.6 35B-A3B", id: "qwen3.6-35b-a3b", architecture: "MoE, 3B active", precision: "4-bit", variant: "4bit", downloadGB: 22.1, memoryGB: 32),
+        .init(name: "flash", label: "Qwen3.8 Flash Next 180B-A7B", id: "qwen3.8-flash-next", architecture: "MoE, 7B active", precision: "4-bit", variant: "4bit", downloadGB: 105.9, memoryGB: 128),
+        .init(name: "dory", label: "Nemotron Dory 1.0 4B", id: "nemotron-labs-dory1.0-4b", architecture: "Looped dense", precision: "NVFP4", variant: "nvfp4", downloadGB: 3.2, memoryGB: 16),
+        .init(name: "nano-4b", label: "Nemotron 3 Nano 4B", id: "nemotron-3-nano-4b", architecture: "Hybrid Mamba-2", precision: "FP8", variant: "fp8", downloadGB: 5.3, memoryGB: 16),
+        .init(name: "nano-9b", label: "Nemotron Nano 9B v2", id: "nemotron-nano-9b-v2", architecture: "Hybrid Mamba-2", precision: "NVFP4", variant: "nvfp4", downloadGB: 7.8, memoryGB: 16),
+        .init(name: "lightning", label: "Nemotron 3.5 Lightning 30B-A3B", id: "nemotron-3.5-lightning", architecture: "MoE, 3B active", precision: "NVFP4", variant: "nvfp4", downloadGB: 22.9, memoryGB: 32),
+        .init(name: "bolt", label: "Nemotron 3.5 Bolt 74B-A9B", id: "nemotron-3.5-bolt", architecture: "MoE, 9B active", precision: "2-bit experts", variant: "24gb", downloadGB: 25.1, memoryGB: 32),
+        .init(name: "super", label: "Nemotron 3.5 Super-VL 120B-A12B", id: "nemotron-3.5-super-vl", architecture: "MoE, 12B active", precision: "NVFP4", variant: "nvfp4", downloadGB: 76.4, memoryGB: 96),
+        .init(name: "flint", label: "Recursive Flint 40B-A2.5B", id: "flint", architecture: "MoE, 2.5B active", precision: "4-bit", variant: "4bit", downloadGB: 22.6, memoryGB: 32),
     ]
 
     /// The catalog model a downloaded one is, from its saved name such as `qwen3.8-27b:4bit`.
