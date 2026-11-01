@@ -132,8 +132,8 @@ final class KapitsaChatReviewControllerTests: XCTestCase {
 
     func testALongChatIsReadInSectionsSoLaterQuestionsCount() async throws {
         // A large context alone would fit this chat in one request; the cap splits it anyway.
-        XCTAssertEqual(KapitsaChatReview.sectionBudget(contextTokens: 131_072), KapitsaChatReview.maximumSectionTokens)
-        XCTAssertEqual(KapitsaChatReview.sectionBudget(contextTokens: 8_192), KapitsaChatSummary.sectionBudget(contextTokens: 8_192))
+        XCTAssertEqual(KapitsaChatSummary.readingBudget(contextTokens: 131_072), KapitsaChatSummary.maximumSectionTokens)
+        XCTAssertEqual(KapitsaChatSummary.readingBudget(contextTokens: 8_192), KapitsaChatSummary.sectionBudget(contextTokens: 8_192))
 
         let long = String(repeating: "Lisbon rent and schools. ", count: 600)  // about 3,750 tokens
         var messages: [KapitsaChatMessage] = []

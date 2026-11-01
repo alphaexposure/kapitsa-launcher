@@ -42,6 +42,18 @@ struct KapitsaChatSummary: Equatable {
         max(2_000, Int(Double(contextTokens ?? 32_768) * 0.6))
     }
 
+    /// Summaries and takeaways read a long chat in sections of at most this many tokens, even
+    /// when the model's context would take it whole: given a 36-question chat (about 50,000
+    /// tokens) in one request, a model kept to its start. Its takeaways came only from the
+    /// first 13 questions, and its summary missed 10 of the last 22 subjects; read in sections,
+    /// the summary missed 3.
+    static let maximumSectionTokens = 12_000
+
+    /// The section size for reading a chat: what fits the context, at most maximumSectionTokens.
+    static func readingBudget(contextTokens: Int?) -> Int {
+        min(sectionBudget(contextTokens: contextTokens), maximumSectionTokens)
+    }
+
     /// A rough token count for text: about four characters per token for English.
     static func estimatedTokens(_ text: String) -> Int {
         (text.utf8.count + 3) / 4
@@ -135,7 +147,7 @@ struct KapitsaChatSummary: Equatable {
             request.setValue("application/json", forHTTPHeaderField: "Accept")
             return try replyText(from: try await send(request))
         }
-        let parts = sections(transcript(messages), budget: sectionBudget(contextTokens: contextTokens))
+        let parts = sections(transcript(messages), budget: readingBudget(contextTokens: contextTokens))
         var summaries: [String] = []
         for part in parts {
             try Task.checkCancellation()

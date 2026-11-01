@@ -89,6 +89,24 @@ final class KapitsaChatSummaryTests: XCTestCase {
         XCTAssertGreaterThan(count, 2)
     }
 
+    func testALongChatIsReadInSectionsEvenWhenTheContextWouldTakeItWhole() async throws {
+        // About 30,000 tokens: one request under the old rule on a 131k model, three now.
+        let long = (1...8).flatMap { index in [
+            KapitsaChatMessage(role: .user, text: "Question \(index)"),
+            KapitsaChatMessage(role: .assistant, text: String(repeating: "Lisbon rent. ", count: 1_150)),
+        ] }
+        let calls = Counter()
+        let summary = try await KapitsaChatSummary.write(for: long, connection: connection, contextTokens: 131_072) { request in
+            _ = await calls.add()
+            let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+            let instructions = ((body["messages"] as! [[String: String]])[0])["content"]!
+            return Self.reply(instructions == KapitsaChatSummary.combineInstructions ? "Combined" : "Part")
+        }
+        XCTAssertEqual(summary.text, "Combined")
+        let count = await calls.value
+        XCTAssertEqual(count, 4, "three sections, then one request to combine them")
+    }
+
     func testOneFileHasTheSummaryThenTheConversation() throws {
         let folder = try temporaryFolder()
         let url = folder.appendingPathComponent("Warm.md")

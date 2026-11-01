@@ -76,10 +76,11 @@ server and chatting with it, without the command line.
   takeaways come from the same model you chat with, so small models give weaker results.
   A 2B model mixed reply headings into its topics and couldn't group them into themes. If
   the panel looks off, try a larger model.
-- **Long chats wear it down.** After about 30 questions, the Review's takeaways may cover
-  only the start of the chat. Topics can also pick up near-duplicate names ("Cost of
-  living", "Cost of living comparison"), and themes can multiply; **Redo all** in the
-  Topics view regroups the themes from scratch.
+- **Long chats get broader, not deeper.** In a chat of 30 or more questions, the Review
+  gives each part of it a couple of takeaways, and Topics can pick up near-duplicate names
+  ("Cost of living", "Cost of living comparison").
+- **Replies slowing down as the chat fills up?** **Continue in a new chat…** under the
+  context gauge in the side panel carries on from a summary of this one.
 
 ## Privacy and safety
 
