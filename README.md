@@ -70,6 +70,17 @@ server and chatting with it, without the command line.
 - Kapitsa 0.2 or later. The launcher looks for `kapitsa` in `/opt/homebrew/bin` and
   `~/.local/bin`, or you can choose it in Settings.
 
+## Limitations
+
+- **The side panel is written by your model.** Outline titles, Topics, themes and Review
+  takeaways come from the same model you chat with, so small models give weaker results.
+  A 2B model mixed reply headings into its topics and couldn't group them into themes. If
+  the panel looks off, try a larger model.
+- **Long chats wear it down.** After about 30 questions, the Review's takeaways may cover
+  only the start of the chat. Topics can also pick up near-duplicate names ("Cost of
+  living", "Cost of living comparison"), and themes can multiply; **Redo all** in the
+  Topics view regroups the themes from scratch.
+
 ## Privacy and safety
 
 - **Everything stays on your Mac.** The server listens on `127.0.0.1:8000`, so only this
