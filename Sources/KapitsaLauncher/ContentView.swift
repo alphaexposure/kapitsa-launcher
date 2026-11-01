@@ -18,11 +18,12 @@ struct ContentView: View {
     /// This window's chat: the one it showed last, else the most recent, else a new one.
     private var currentChat: UUID {
         if let id = UUID(uuidString: chatID) { return id }
-        return chats.summaries.first?.id ?? Self.firstNewChat
+        return chats.summaries.first?.id ?? firstNewChat
     }
 
-    /// Stands in for a window's chat until one is chosen, so it stays the same between redraws.
-    private static let firstNewChat = UUID()
+    /// Stands in for this window's chat until one is chosen, so it stays the same between
+    /// redraws; each window or tab has its own, so two new tabs don't share a chat.
+    @State private var firstNewChat = UUID()
 
     private func openChat(_ id: UUID, find: String = "") {
         chatID = id.uuidString
@@ -53,6 +54,10 @@ struct ContentView: View {
         }
         .tint(KapitsaTheme.accent)
         .frame(minWidth: 850, minHeight: 650)
+        .background {
+            if page == .chat { ChatTabTitle(chats: chats, chatID: currentChat) }
+            else { WindowTabTitle(title: page.rawValue) }
+        }
     }
 
     @ViewBuilder
@@ -85,6 +90,9 @@ struct ContentView: View {
                 .equatable()
                 // A different chat starts a fresh page: its own scroll position, sheets and draft.
                 .id(shown)
+                // Keeps the chat first shown, so a chat started in another tab doesn't take its
+                // place by becoming the most recent.
+                .onAppear { if chatID.isEmpty { chatID = shown.uuidString } }
                 .onChange(of: controller.engine.model, initial: true) {
                     if let model = controller.engine.model {
                         UserDefaults.standard.set(model, forKey: KapitsaThinkingChoice.lastModelKey)
@@ -206,5 +214,18 @@ struct ContentView: View {
         .frame(width: 196)
         .frame(maxHeight: .infinity)
         .background(KapitsaTheme.sidebar)
+    }
+}
+
+/// The Chat page's tab name, with the chat's name: "Chat - Compare US beach cities". Apart
+/// from the window, which doesn't follow the chat list, so the name updates as titles arrive.
+private struct ChatTabTitle: View {
+    @ObservedObject var chats: KapitsaChatLibrary
+    let chatID: UUID
+    @AppStorage(KapitsaChatLibrary.nameStyleKey) private var nameStyle = KapitsaChatLibrary.NameStyle.title
+
+    var body: some View {
+        let name = chats.summaries.first { $0.id == chatID }?.name(nameStyle) ?? "New chat"
+        WindowTabTitle(title: LauncherPage.chat.rawValue + " - " + name)
     }
 }

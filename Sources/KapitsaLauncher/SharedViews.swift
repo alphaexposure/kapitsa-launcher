@@ -248,3 +248,30 @@ struct KapitsaPanelToggleStyle: ToggleStyle {
         .accessibilityValue(configuration.isOn ? "Shown" : "Hidden")
     }
 }
+
+/// Names the window's tab, such as "Chat" for the Chat page, so tabs on different pages can be
+/// told apart; the title bar above keeps the app's name.
+struct WindowTabTitle: NSViewRepresentable {
+    let title: String
+
+    func makeNSView(context: Context) -> TitleView { TitleView() }
+
+    func updateNSView(_ view: TitleView, context: Context) { view.title = title }
+
+    final class TitleView: NSView {
+        var title = "" { didSet { apply() } }
+
+        // The view has no window until it's on screen, so the title is set again then.
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            apply()
+        }
+
+        private func apply() {
+            guard let window, !title.isEmpty, window.tab.title != title else { return }
+            window.tab.title = title
+            // The tab's tooltip would otherwise keep the page the tab was opened on.
+            window.tab.toolTip = title
+        }
+    }
+}

@@ -426,7 +426,7 @@ final class KapitsaChatController: ObservableObject {
     @Published private(set) var messages: [KapitsaChatMessage]
     /// The reply being written, kept apart from `messages` until it finishes.
     @Published private(set) var liveReply: KapitsaChatMessage? {
-        didSet { if (oldValue == nil) != (liveReply == nil) { onStreamingChange?(liveReply != nil) } }
+        didSet { if (oldValue == nil) != (liveReply == nil) { onStreamingChange?(isStreaming) } }
     }
     /// The text to send. Not published: the message box keeps what's being typed and hands
     /// it over on send, so a keystroke doesn't redraw the whole Chat page.
@@ -462,7 +462,8 @@ final class KapitsaChatController: ObservableObject {
     private var updatedAt: Date?
     /// Called after each save, so the chat list can follow names and dates.
     var onSave: ((KapitsaChatStore.Document) -> Void)?
-    /// Called when a reply starts or stops being written.
+    /// Called when a reply or a side question's reply starts or stops being written, with
+    /// whether either still is.
     var onStreamingChange: ((Bool) -> Void)?
     private var task: Task<Void, Never>?
     private var topicTask: Task<Void, Never>?
@@ -470,7 +471,7 @@ final class KapitsaChatController: ObservableObject {
     /// The side question's reply being written, if any.
     let tangentStream = KapitsaTangentStream()
     @Published private(set) var isTangentStreaming = false {
-        didSet { if oldValue != isTangentStreaming { onStreamingChange?(isTangentStreaming) } }
+        didSet { if oldValue != isTangentStreaming { onStreamingChange?(isStreaming) } }
     }
     /// The chat's takeaways, which the Review view shows.
     @Published private(set) var review: KapitsaChatReview
