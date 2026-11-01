@@ -74,12 +74,14 @@ struct KapitsaChatReview: Codable, Equatable {
     }
 
     /// One takeaway per line, with the questions named in its brackets; bullets, numbers and
-    /// bold marks are dropped.
+    /// bold marks are dropped. A line without a bullet counts when it ends with its questions,
+    /// since models sometimes leave the bullets off.
     static func parseTakeaways(_ text: String, questionIDs: [UUID]) -> [Takeaway] {
         var takeaways: [Takeaway] = []
         for line in text.split(whereSeparator: \.isNewline) {
             var line = String(line).trimmingCharacters(in: .whitespaces)
-            guard line.hasPrefix("-") || line.hasPrefix("*") || line.hasPrefix("•") || line.first?.isNumber == true else { continue }
+            let isListed = line.hasPrefix("-") || line.hasPrefix("*") || line.hasPrefix("•") || line.first?.isNumber == true
+            guard isListed || line.range(of: #"\[Q?\d[^\]]*\]\.?$"#, options: .regularExpression) != nil else { continue }
             line = line.replacingOccurrences(of: #"^(?:[-*•]|\d+[.)])\s*"#, with: "", options: .regularExpression)
             var numbers: [Int] = []
             if let range = line.range(of: #"\s*\[[^\]]*\d[^\]]*\]\s*\.?$"#, options: .regularExpression) {

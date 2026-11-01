@@ -20,6 +20,18 @@ final class KapitsaChatReviewTests: XCTestCase {
         XCTAssertEqual(takeaways.map(\.questionIDs), [[ids[0], ids[2]], [ids[1]], [], []])
     }
 
+    func testTakeawaysWithoutBulletsCountWhenTheyNameTheirQuestions() {
+        let ids = [UUID(), UUID()]
+        let text = """
+        San Diego has the driest summers. [Q2]
+        Charleston has the best food, but humid summers. [Q1, Q2].
+        Here are the takeaways:
+        """
+        let takeaways = KapitsaChatReview.parseTakeaways(text, questionIDs: ids)
+        XCTAssertEqual(takeaways.map(\.text), ["San Diego has the driest summers.", "Charleston has the best food, but humid summers."])
+        XCTAssertEqual(takeaways.map(\.questionIDs), [[ids[1]], [ids[0], ids[1]]])
+    }
+
     func testSavedFileNamesTheChatAndEachTakeawaysQuestions() {
         let q3 = UUID(), q7 = UUID()
         let takeaways = [KapitsaChatReview.Takeaway(text: "Tenerife has the sandiest beaches.", questionIDs: [q3, q7]),

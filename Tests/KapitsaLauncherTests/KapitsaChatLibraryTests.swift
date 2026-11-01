@@ -175,4 +175,48 @@ final class KapitsaChatLibraryTests: XCTestCase {
         }
         wait(for: [failed, saved], timeout: 5)
     }
+
+    func testLauncherHomeMovesTheChats() {
+        XCTAssertEqual(KapitsaChatStore.folder(environment: ["KAPITSA_LAUNCHER_HOME": "/tmp/Demo Chats"]).path, "/tmp/Demo Chats")
+        XCTAssertTrue(KapitsaChatStore.folder(environment: [:]).path.hasSuffix("/Application Support/KapitsaLauncher"))
+    }
+    func testTwoChatsReplyingAtOnceEachStopShowingAsWriting() async {
+        // The first reply takes longer, so the second chat finishes first.
+        let delays = DelayQueue([.milliseconds(150), .milliseconds(20)])
+        let library = KapitsaChatLibrary(folder: folder, trash: { _ in }) { store, labels in
+            KapitsaChatController(store: store, defaults: UserDefaults(suiteName: "KapitsaChatLibraryTests")!,
+                                  send: { _ in throw URLError(.cannotConnectToHost) },
+                                  streamLines: { _ in
+                let delay = delays.next()
+                return AsyncThrowingStream { continuation in
+                    Task {
+                        try? await Task.sleep(for: delay)
+                        continuation.yield(#"data: {"choices":[{"delta":{"content":"Answer"}}]}"#)
+                        continuation.yield("data: [DONE]")
+                        continuation.finish()
+                    }
+                }
+            }, requestLabels: labels)
+        }
+        let connection = KapitsaChatConnection(baseURL: URL(string: "http://127.0.0.1:1")!, apiKey: nil, model: "test")
+        let first = UUID(), second = UUID()
+        for id in [first, second] {
+            let chat = library.controller(for: id)
+            chat.draft = "Question"
+            chat.send(to: connection)
+        }
+        XCTAssertEqual(library.streaming, [first, second])
+        for _ in 0..<200 where !library.streaming.isEmpty { try? await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertEqual(library.streaming, [])
+        XCTAssertFalse(library.controller(for: first).isStreaming)
+        XCTAssertFalse(library.controller(for: second).isStreaming)
+    }
+}
+
+/// Hands out the delays in order, one per request.
+private final class DelayQueue: @unchecked Sendable {
+    private var delays: [Duration]
+    private let lock = NSLock()
+    init(_ delays: [Duration]) { self.delays = delays }
+    func next() -> Duration { lock.withLock { delays.isEmpty ? .zero : delays.removeFirst() } }
 }
