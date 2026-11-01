@@ -59,6 +59,17 @@ final class KapitsaChatTopicsTests: XCTestCase {
         XCTAssertEqual(found.places, ["Stratford-upon-Avon", "Santa Cruz, Tenerife", "Rio de Janeiro"])
     }
 
+    func testAnAbbreviationKeepsItsFullStop() {
+        let found = KapitsaChatTopics.parse("""
+        Place: Washington, D.C.
+        Place: Lisbon.
+        Topic: Cost of living.
+        Topic: U.S. taxes
+        """)
+        XCTAssertEqual(found.places, ["Washington, D.C.", "Lisbon"])
+        XCTAssertEqual(found.topics, ["Cost of living", "U.S. taxes"])
+    }
+
     func testALongReplyIsCutToItsOutline() {
         let paragraph = "Funchal stays mild all year, with highs near 22°C. It rarely freezes and the sea stays warm."
         let reply = """
@@ -214,6 +225,31 @@ final class KapitsaChatTopicsControllerTests: XCTestCase {
         XCTAssertTrue(sentInstructions.contains("already has these themes:\nHousing and costs"))
         XCTAssertTrue(sentInstructions.hasSuffix("--\nSchools"), "only the new topic is sent")
         XCTAssertEqual(chat.topicThemes, ["rent": "Housing and costs", "schools": "Family"])
+    }
+
+    func testTooManyThemesAreGroupedAfresh() async throws {
+        let file = temporaryFile()
+        let store = KapitsaChatStore(url: file)
+        let topics = (1...10).map { "Topic \($0)" }
+        store.save([KapitsaChatMessage(role: .assistant, text: "A", topics: topics + ["New topic"])],
+                   topicThemes: Dictionary(uniqueKeysWithValues: topics.map { (KapitsaChatTopics.key($0), "Theme for " + $0) }))
+        var sent: [String] = []
+        let chat = KapitsaChatController(store: store, defaults: UserDefaults(suiteName: "KapitsaChatTopicsControllerTests")!,
+                                         send: { request in
+            let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+            let parts = body["messages"] as! [[String: String]]
+            sent.append(parts[0]["content"]!)
+            // The new topic gets an eleventh theme; asked afresh, everything fits in two.
+            let reply = parts[0]["content"]!.contains("already has these themes")
+                ? "Eleventh: New topic"
+                : "Early: Topic 1 | Topic 2 | Topic 3 | Topic 4 | Topic 5\nLate: Topic 6 | Topic 7 | Topic 8 | Topic 9 | Topic 10 | New topic"
+            return try JSONSerialization.data(withJSONObject: ["choices": [["message": ["content": reply]]]])
+        }, streamLines: { _ in AsyncThrowingStream { $0.finish() } })
+        await chat.groupTopics(connection: connection)
+        XCTAssertEqual(sent.count, 2)
+        XCTAssertFalse(sent[1].contains("already has these themes"), "the second request groups every topic afresh")
+        XCTAssertEqual(Set(chat.topicThemes.values), ["Early", "Late"])
+        XCTAssertEqual(chat.topicThemes.count, 11)
     }
 
     func testAReplyFromBeforeTitlesKeepsItsTopicsAndGainsATitle() async {

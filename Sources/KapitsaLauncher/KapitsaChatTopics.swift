@@ -28,8 +28,11 @@ enum KapitsaChatTopics {
             + "above just because it appears there."
     }
 
+    /// More themes than this and the chat's themes are grouped afresh (see KapitsaChat.groupTopics).
+    static let maximumThemes = 10
+
     static let groupInstructions = """
-    These are topics from one conversation. Group them into at most 10 themes, each a short, \
+    These are topics from one conversation. Group them into at most \(maximumThemes) themes, each a short, \
     broad name of 1 to 3 words, for example: Climate, Residency, Housing and costs. Put every \
     topic in exactly one theme. Write one line per theme: the theme's name, then ": ", then its \
     topics separated by " | ". No other text.
@@ -199,9 +202,15 @@ enum KapitsaChatTopics {
     /// Bullets and list numbers ("-", "•", "1.", "2)"), but not a leading number such as "3BR",
     /// and stray quotes or emphasis.
     private static func clean(_ name: String) -> String {
-        name.trimmingCharacters(in: .whitespaces)
+        let unlisted = name.trimmingCharacters(in: .whitespaces)
             .replacingOccurrences(of: #"^(?:[-*•·]+|\d+[.)])\s*"#, with: "", options: .regularExpression)
-            .trimmingCharacters(in: CharacterSet(charactersIn: " \"'`*_.,;:"))
+        let cleaned = unlisted.trimmingCharacters(in: CharacterSet(charactersIn: " \"'`*_.,;:"))
+        // An abbreviation keeps its own full stop: "Washington, D.C.", not "Washington, D.C".
+        let ending = unlisted.trimmingCharacters(in: CharacterSet(charactersIn: " \"'`*_,;:"))
+        if ending.range(of: #"(?:^|[\s,])(?:[A-Za-z]\.){2,}$"#, options: .regularExpression) != nil {
+            return cleaned + "."
+        }
+        return cleaned
     }
 
     /// Names that differ only in case or accents are the same entry.

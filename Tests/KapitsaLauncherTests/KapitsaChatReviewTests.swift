@@ -130,6 +130,31 @@ final class KapitsaChatReviewControllerTests: XCTestCase {
         XCTAssertTrue(reopened.review.newQuestions(in: reopened.messages).isEmpty)
     }
 
+    func testALongChatIsReadInSectionsSoLaterQuestionsCount() async throws {
+        // A large context alone would fit this chat in one request; the cap splits it anyway.
+        XCTAssertEqual(KapitsaChatReview.sectionBudget(contextTokens: 131_072), KapitsaChatReview.maximumSectionTokens)
+        XCTAssertEqual(KapitsaChatReview.sectionBudget(contextTokens: 8_192), KapitsaChatSummary.sectionBudget(contextTokens: 8_192))
+
+        let long = String(repeating: "Lisbon rent and schools. ", count: 600)  // about 3,750 tokens
+        var messages: [KapitsaChatMessage] = []
+        for n in 1...8 {
+            messages += [KapitsaChatMessage(role: .user, text: "Q\(n)"), KapitsaChatMessage(role: .assistant, text: long)]
+        }
+        var requests = 0
+        let chat = controller(messages, file: temporaryFile()) { _, text in
+            requests += 1
+            let first = text.range(of: #"Question (\d+)"#, options: .regularExpression).map { String(text[$0]) } ?? "?"
+            let line = "- From " + first + " [Q" + first.dropFirst("Question ".count) + "]"
+            return Array(repeating: line, count: 6).joined(separator: "\n")  // more than its share
+        }
+        chat.writeTakeaways(connection: connection, contextTokens: 131_072, update: false)
+        try await waitForReviewWork(chat)
+        XCTAssertGreaterThan(requests, 1)
+        let share = max(2, KapitsaChatReview.takeawayCount(questions: 8, isUpdate: false) / requests)
+        XCTAssertEqual(chat.review.takeaways.count, share * requests, "each section gives only its share")
+        XCTAssertTrue(chat.review.takeaways.contains { $0.text != "From Question 1" }, "later sections are read too")
+    }
+
     func testWritingAgainKeepsPinnedAndOwnTakeaways() async throws {
         let file = temporaryFile()
         let chat = controller([KapitsaChatMessage(role: .user, text: "Q1"), KapitsaChatMessage(role: .assistant, text: "A1")],
