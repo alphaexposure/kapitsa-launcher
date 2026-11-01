@@ -821,6 +821,12 @@ final class KapitsaChatController: ObservableObject {
                                                                send: requestLabels.labelling(send, as: .themes)) else { return }
         if regroup { topicThemes = [:] }
         topicThemes.merge(themes) { _, new in new }
+        // New themes keep being added a few topics at a time, so a long chat can pass the
+        // limit, with one catch-all theme and several of a single topic; group it afresh then.
+        if !regroup, Set(topicThemes.values).count > KapitsaChatTopics.maximumThemes {
+            await groupTopics(connection: connection, regroup: true)
+            return
+        }
         // Themes of topics no longer in the chat, after deletes or a redo; hidden versions keep theirs.
         let kept = Set(KapitsaChatVersions.everything(messages).flatMap { $0.topics ?? [] }.map(KapitsaChatTopics.key))
         topicThemes = topicThemes.filter { kept.contains($0.key) }

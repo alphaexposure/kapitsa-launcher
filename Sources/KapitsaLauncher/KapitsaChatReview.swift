@@ -58,7 +58,7 @@ struct KapitsaChatReview: Codable, Equatable {
         let questionCount = questions?.count ?? messages.filter { $0.role == .user }.count
         let count = takeawayCount(questions: questionCount, isUpdate: questions != nil)
         let parts = KapitsaChatSummary.sections(KapitsaChatSummary.transcript(messages, only: questions),
-                                                budget: KapitsaChatSummary.sectionBudget(contextTokens: contextTokens))
+                                                budget: KapitsaChatSummary.readingBudget(contextTokens: contextTokens))
         let share = parts.count > 1 ? max(2, count / parts.count) : count
         let questionIDs = messages.filter { $0.role == .user }.map(\.id)
         var takeaways: [Takeaway] = []
@@ -67,7 +67,8 @@ struct KapitsaChatReview: Codable, Equatable {
             // The fixed instructions come first, so Kapitsa can reuse them from its cache.
             let text = part + (existing.isEmpty ? "" : existingInstructions(existing))
             let reply = try await ask(String(format: takeawayInstructions, share), text, connection: connection, send: send)
-            takeaways += parseTakeaways(reply, questionIDs: questionIDs)
+            // Models often write more than asked for; the first are the most important.
+            takeaways += parseTakeaways(reply, questionIDs: questionIDs).prefix(share)
         }
         guard !takeaways.isEmpty else { throw KapitsaChatSummary.Failure.emptyReply }
         return takeaways
