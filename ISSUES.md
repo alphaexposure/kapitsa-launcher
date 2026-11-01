@@ -60,9 +60,6 @@ is committed, and note the commit.
 - [x] **Copy buttons.** Tables and a reply's thinking have Copy buttons, like code blocks;
   code blocks in list items stay in the list. (9e392ba, 50bc047)
 
-- [x] **Tags in DEVONthink.** DEVONthink ignores front matter tags; a smart rule script in
-  `Scripts/DEVONthink/` applies them, and exports tag only places and themes.
-
 ## Overview
 
 - [x] **Latest chat reply.** The Overview showed whatever finished last, usually a background
