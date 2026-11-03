@@ -131,7 +131,7 @@ struct SettingsPage: View {
             Panel("Server settings", symbol: "slider.horizontal.3") {
                 field("Context per conversation", text: $controller.configuration.context,
                       prompt: "e.g. 128k or max", defaultValue: "128K, less when memory is tight",
-                      helpText: "Tokens one conversation can hold: a number, k or m of them (128k, 1m), or max for the model's limit. Blank lets Kapitsa choose for this Mac's memory.")
+                      helpText: "Tokens one conversation can hold: a number, k or m of them (128k, 1m), or max for the model's limit. Blank lets Kapitsa choose for this Mac's memory: the largest context that still leaves room for the faster DFlash2 drafter. A larger one can leave the drafter out, and replies are then written more slowly.")
                 field("Slots", text: $controller.configuration.slots,
                       prompt: "e.g. 2", defaultValue: "Up to 4, as memory allows",
                       helpText: "Requests that run at once, each keeping its conversation ready for instant follow-ups. More requests wait for a free slot. Fewer slots leave more memory for context.")

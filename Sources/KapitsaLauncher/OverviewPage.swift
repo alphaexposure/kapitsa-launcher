@@ -112,13 +112,23 @@ struct OverviewPage: View {
                            symbol: "square.stack.3d.up",
                            help: "Memory left in the budget for conversations' key-value cache, and how many tokens it holds in total across every slot.")
             }
-            HStack(spacing: 8) {
-                Image(systemName: "bolt.horizontal").foregroundStyle(KapitsaTheme.accent)
-                Text("Decoding")
-                SettingHelpIcon(title: "Decoding", message: "How Kapitsa generates tokens for this model, for example speculative decoding with a DFlash2 drafter, and whether it reads images.")
-                Spacer(minLength: 16)
-                Text(engine?.decoding ?? "—").foregroundStyle(.secondary)
-                    .multilineTextAlignment(.trailing).textSelection(.enabled)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    Image(systemName: "bolt.horizontal").foregroundStyle(KapitsaTheme.accent)
+                    Text("Decoding")
+                    SettingHelpIcon(title: "Decoding", message: "How Kapitsa generates tokens for this model, for example speculative decoding with a DFlash2 drafter, and whether it reads images.")
+                    Spacer(minLength: 16)
+                    Text(engine?.decoding ?? "—").foregroundStyle(.secondary)
+                        .multilineTextAlignment(.trailing).textSelection(.enabled)
+                }
+                if let leftOut = engine?.drafterLeftOut {
+                    Label {
+                        Text("Kapitsa left out the faster DFlash2 drafter: its \(gigabytes(leftOut.drafterGB)) wouldn't fit beside a \(leftOut.contextTokens.formatted())-token conversation, so replies are written more slowly. To get the drafter back, set a smaller Context per conversation in Settings, or leave it blank so Kapitsa chooses the largest context that still leaves room for the drafter.")
+                            .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    } icon: {
+                        Image(systemName: "info.circle").foregroundStyle(KapitsaTheme.accent)
+                    }
+                }
             }
             .font(.callout).padding(18).background(KapitsaTheme.panel, in: RoundedRectangle(cornerRadius: 12))
             HStack {
