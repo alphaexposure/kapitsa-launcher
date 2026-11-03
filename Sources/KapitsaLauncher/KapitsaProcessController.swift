@@ -192,7 +192,7 @@ final class KapitsaProcessController: ObservableObject {
 
         let process = Process()
         process.executableURL = executable.url
-        process.arguments = KapitsaServeArguments.serveArguments(configuration)
+        process.arguments = KapitsaServeArguments.serveArguments(configuration, installed: KapitsaModelStorage.installedModels())
         var environment = ProcessInfo.processInfo.environment
         environment.removeValue(forKey: "KAPITSA_API_KEY")
         if let key { environment["KAPITSA_API_KEY"] = key }

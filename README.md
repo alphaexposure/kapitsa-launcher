@@ -54,13 +54,13 @@ server and chatting with it, without the command line.
    ```
 
    If Kapitsa Launcher can't find `kapitsa`, it says so and links to the project page.
-2. **Build Kapitsa Launcher** with Xcode 15.3 or later, or the Command Line Tools:
+2. **Download Kapitsa Launcher** from the
+   [latest release](https://github.com/alphaexposure/kapitsa-launcher/releases/latest): unzip
+   it and move **Kapitsa Launcher** to Applications.
 
-   ```bash
-   zsh Scripts/build-app.zsh
-   open "dist/Kapitsa Launcher.app"
-   ```
-
+   The app isn't notarised by Apple, so the first time you open it, macOS blocks it. Open
+   **System Settings → Privacy & Security**, scroll down, and click **Open Anyway**. You only
+   need to do this once.
 3. **Press Start.** The first start downloads the model, which can take a while; the
    Overview shows the progress.
 
@@ -95,6 +95,13 @@ server and chatting with it, without the command line.
   `~/Library/Application Support/KapitsaLauncher/Chats/`.
 
 ## Development
+
+To build the app yourself, use Xcode 15.3 or later, or the Command Line Tools:
+
+```bash
+zsh Scripts/build-app.zsh
+open "dist/Kapitsa Launcher.app"
+```
 
 `Scripts/build-app.zsh` builds a release binary and packages it as
 `dist/Kapitsa Launcher.app`, ad-hoc signed for local use. `swift build` and `swift test`

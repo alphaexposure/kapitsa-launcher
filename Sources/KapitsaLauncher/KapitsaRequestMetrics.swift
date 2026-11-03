@@ -132,6 +132,15 @@ struct KapitsaEngineInfo: Equatable {
     var address: String?
     /// A model being downloaded before it loads; nil once it's here.
     var download: Download?
+    /// Why Kapitsa decodes without its DFlash2 drafter, when the context left no room for it.
+    var drafterLeftOut: DrafterLeftOut?
+
+    /// Kapitsa leaves the drafter out when it and one full conversation don't both fit the
+    /// memory budget, and decodes with the model's slower MTP head instead.
+    struct DrafterLeftOut: Equatable {
+        var drafterGB: Double
+        var contextTokens: Int
+    }
 
     /// Kapitsa's download, from the lines it prints when its output isn't a terminal:
     /// "Downloading NAME (…) into …", then every 15 seconds "0.80 GB of 1.75 GB  45%  60.2 MB/s
@@ -167,6 +176,9 @@ struct KapitsaEngineInfo: Equatable {
     private static let progress = regex(
         #"^([\d.]+ [KMG]B) of ([\d.]+ [KMG]B)\s+(\d+)%\s+([\d.]+) MB/s\s+(.+?) left$"#)
     private static let downloaded = regex(#"^Downloaded [\d.]+ [KMG]B in "#)
+    /// "DFlash2: …/dflash2 left out: its 1.05 GB would keep a 196608-token conversation from
+    /// fitting the 25.7 GB budget".
+    private static let leftOut = regex(#"DFlash2: .+ left out: its ([\d.]+) GB would keep a (\d+)-token conversation"#)
 
     /// Updates the values a startup line reports. Returns whether the line was recognised.
     @discardableResult
@@ -198,6 +210,10 @@ struct KapitsaEngineInfo: Equatable {
             recommendedGB = Double(groups[2])
             kvRoomGB = Double(groups[3])
             kvTokens = Int(groups[4])
+        } else if let groups = captures(Self.leftOut, in: line) {
+            if let size = Double(groups[0]), let tokens = Int(groups[1]) {
+                drafterLeftOut = DrafterLeftOut(drafterGB: size, contextTokens: tokens)
+            }
         } else if let groups = captures(Self.gpuLine, in: line) {
             gpu = "\(groups[0]), \(groups[1])-core GPU"
         } else if let groups = captures(Self.listening, in: line) {

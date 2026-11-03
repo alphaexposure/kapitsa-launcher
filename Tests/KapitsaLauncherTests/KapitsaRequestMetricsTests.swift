@@ -74,4 +74,17 @@ final class KapitsaRequestMetricsTests: XCTestCase {
         XCTAssertEqual(engine.decoding, "KFlash speculative decoding (DFlash2 lattice, tree verify), images on")
         XCTAssertEqual(engine.address, "http://127.0.0.1:8001")
     }
+
+    /// Lines from Kapitsa 0.2.17 serving qwen3.6-35b-a3b:4bit with --context 192k on a 32 GB Mac.
+    func testEngineNotesWhenTheContextLeavesOutTheDrafter() {
+        var engine = KapitsaEngineInfo()
+        XCTAssertTrue(engine.apply(logLine: "[kapitsa] DFlash2: /Users/me/.cache/kapitsa/models/qwen3.6-35b-a3b-4bit/dflash2 left out: its 1.05 GB would keep a 196608-token conversation from fitting the 25.7 GB budget"))
+        engine.apply(logLine: "[kapitsa] engine ready: qwen3.6-35b-a3b, context 196608, 2 slots, MTP speculative decoding depth 1, KFlash (MTP), images on")
+        XCTAssertEqual(engine.drafterLeftOut, .init(drafterGB: 1.05, contextTokens: 196608))
+        XCTAssertEqual(engine.decoding, "MTP speculative decoding depth 1, KFlash (MTP), images on")
+
+        var withDrafter = KapitsaEngineInfo()
+        withDrafter.apply(logLine: "[kapitsa] engine ready: qwen3.6-35b-a3b, context 131072, 3 slots, KFlash speculative decoding (DFlash2 lattice, tree verify), KFlash (DFlash2), images on")
+        XCTAssertNil(withDrafter.drafterLeftOut)
+    }
 }
