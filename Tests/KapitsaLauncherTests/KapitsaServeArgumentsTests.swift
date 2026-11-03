@@ -37,4 +37,24 @@ final class KapitsaServeArgumentsTests: XCTestCase {
     func testAPIKeyIsNeverAnArgument() {
         XCTAssertFalse(KapitsaServeArguments.serveArguments(KapitsaConfiguration()).contains("--api-key"))
     }
+
+    func testADownloadedCatalogModelStartsByItsFullName() {
+        let installed = ["lmstudio-community/Qwen3.5-2B-MLX-4bit", "qwen3.6-35b-a3b:16gb", "qwen3.6-35b-a3b:4bit"]
+        // The default precision when it's here, by the short name or Kapitsa's.
+        XCTAssertEqual(KapitsaServeArguments.modelArgument("35b", installed: installed), "qwen3.6-35b-a3b:4bit")
+        XCTAssertEqual(KapitsaServeArguments.modelArgument("qwen3.6-35b-a3b", installed: installed), "qwen3.6-35b-a3b:4bit")
+        // Else the precision that is here.
+        XCTAssertEqual(KapitsaServeArguments.modelArgument("35b", installed: ["qwen3.6-35b-a3b:16gb"]), "qwen3.6-35b-a3b:16gb")
+        // Not downloaded yet: Kapitsa picks what fits.
+        XCTAssertEqual(KapitsaServeArguments.modelArgument("27b", installed: installed), "27b")
+        // A chosen precision, a repo or a path stays as it is.
+        XCTAssertEqual(KapitsaServeArguments.modelArgument("35b:8bit", installed: installed), "35b:8bit")
+        XCTAssertEqual(KapitsaServeArguments.modelArgument("lmstudio-community/Qwen3.5-2B-MLX-4bit", installed: installed),
+                       "lmstudio-community/Qwen3.5-2B-MLX-4bit")
+
+        var configuration = KapitsaConfiguration()
+        configuration.model = "35b"
+        XCTAssertEqual(KapitsaServeArguments.serveArguments(configuration, installed: installed)[1...2],
+                       ["--model", "qwen3.6-35b-a3b:4bit"])
+    }
 }
