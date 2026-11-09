@@ -1,8 +1,7 @@
 # Issues
 
-Open work for Kapitsa Launcher. This repository has no remote yet, so issues are tracked
-here; move them to GitHub issues if the project is published. Tick an item when its change
-is committed, and note the commit.
+What has been built in Kapitsa Launcher, and ideas for later. Ticked items are done; open
+ones are planned or being considered. Bugs and requests are welcome as GitHub issues.
 
 ## Chat navigation
 
@@ -15,35 +14,33 @@ is committed, and note the commit.
   question can be copied or saved on its own.
 - [ ] **Side questions in Find and search.** Find and the Chats search read the main
   conversation only.
-- [x] **Remember folded outline questions.** Folds are saved with the chat in `chat.json`.
-  (87c1a6c)
+- [x] **Remember folded outline questions.** Folds are saved with the chat.
 - [x] **Topic index.** The first step toward the concept map: a Topics view listing each
   reply's key concepts, found by the model, with the questions where they came up; names
   are reused across the chat. Exports include topic lines, a linked topic index and optional
-  tags. (87c1a6c, a0077fc, 42b4ba7, 9063160)
+  tags.
 - [x] **Places and themes.** The index grew by 3 to 4 topics a reply, with near-duplicates
   and one-off names. Replies now get places plus 2 to 4 broad topics, and topics are filed
   into at most about 10 themes kept with the chat, replacing the name-merging step.
-
 - [x] **Takeaways.** A Review view in the panel: takeaways the model writes and the person
   edits, pins and adds to, linked to their questions, updated for new ones, copied or saved
   as Markdown.
-- [ ] **Quiz (Experimental), pulled.** Built in 03b7439, removed in the next commit before
-  shipping: a bad quiz makes the product look rushed. Up to 5 questions on the takeaways,
-  answers checked by the model, misses pinned, review dates marked in the Chats list. The
+- [ ] **Quiz.** A first version was built and removed before shipping, since a quiz that
+  grades badly does more harm than none. It asked up to 5 questions on the takeaways, had
+  the model check the answers, pinned misses and marked review dates in the Chats list. The
   35B model's grading wasn't reliable: strict, it marked a right answer wrong; generous, it
   accepted "Because it is"; on plain facts it invented "why" questions. Next try: no model
   grading. The person recalls, shows the answer and marks "I knew it / I didn't".
 - [ ] **Search takeaways.** The Chats search reads messages only; takeaways the person wrote
   themselves aren't found.
 - [x] **Question titles.** The outline and topic index name each question by a short title
-  the model writes with its topics, with the question as written on hover. (b54b794, 2d79306)
+  the model writes with its topics, with the question as written on hover.
 
 ## Chats
 
 - [x] **Chat history list.** Saved chats, one file each with a cached index, in a Chats column
   beside the conversation; each window or tab shows its own chat, and chats are named by
-  their first question's title or as written. (f63d934, 877cf5a)
+  their first question's title or as written.
 - [x] **Edit and regenerate.** Edit a question or regenerate a reply; earlier versions of the
   conversation from that question on are kept and can be switched back to.
 - [x] **Find and search.** ⌘F finds words in the chat with a match count and highlights;
@@ -56,15 +53,14 @@ is committed, and note the commit.
 
 - [x] **Render Markdown in replies.** Headings, lists, quotes, rules, code blocks and tables
   now render, in finished replies and while they stream.
-
 - [x] **Copy buttons.** Tables and a reply's thinking have Copy buttons, like code blocks;
-  code blocks in list items stay in the list. (9e392ba, 50bc047)
+  code blocks in list items stay in the list.
 
 ## Overview
 
 - [x] **Latest chat reply.** The Overview showed whatever finished last, usually a background
   topic request. It now shows the latest chat reply, or any request with what sent it, and
-  topic requests read an outline of long replies. (4fda784)
+  topic requests read an outline of long replies.
 
 ## Small fixes
 
@@ -75,24 +71,16 @@ is committed, and note the commit.
   as places, even though the request asks for places on a map. Places with ordinary lowercase
   words are now dropped; Rio de Janeiro-style connectors are allowed.
 
-## Notes for the GitHub README
-
-- **Selecting reply text:** each block of a reply (a paragraph, a list item, a table cell)
-  selects on its own; a drag can't select across blocks. Use the reply's Copy button for
-  the whole reply. This is a SwiftUI text limitation.
-
 ## Coding offline
 
 - [ ] **Use with Claude Code.** A button that opens Terminal running Claude Code on the local
-  model in a folder you pick, for outages, hotspots and experiments (not a replacement for
-  Claude). The recipe is tested and kept outside this repo in `~/apps/claude-local`
-  (`Claude-Local-Kapitsa.command`, `small-model-guide.md` and notes with test results):
-  `--bare`, six tools, no MCP servers, approval mode forced to default (the user's global
-  auto mode otherwise applies), edits optionally accepted, model and context read from
-  `/v1/models`. Both the 35B and 27B passed five test tasks; the 35B is the better default.
-  Open questions: whether to ship the script with the app, and how the button runs it
-  without shell interpolation. Kapitsa also has `kapitsa claude`, which doesn't trim tools
-  or prompts.
+  model in a folder you pick, for coding without a connection or for experiments. Claude
+  Code is trimmed for a local model: a small set of tools and no MCP servers. It asks before
+  making changes, with an option to accept edits automatically, and reads the model and its
+  context from `/v1/models`. In testing, both the 35B and 27B models completed five coding
+  tasks this way; the 35B is the better default. Kapitsa's own `kapitsa claude` starts
+  Claude Code untrimmed. To decide: how the button starts Terminal without passing anything
+  through a shell.
 
 ## Porting
 

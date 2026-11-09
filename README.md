@@ -79,6 +79,9 @@ server and chatting with it, without the command line.
 - **Long chats get broader, not deeper.** In a chat of 30 or more questions, the Review
   gives each part of it a couple of takeaways, and Topics can pick up near-duplicate names
   ("Cost of living", "Cost of living comparison").
+- **Selecting text works one part of a reply at a time.** A paragraph, list item or table
+  cell selects on its own, and a drag can't select across them. To copy a whole reply, use
+  the Copy button under it.
 - **Replies slowing down as the chat fills up?** **Continue in a new chat…** under the
   context gauge in the side panel carries on from a summary of this one.
 
