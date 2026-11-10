@@ -5,6 +5,8 @@ import SwiftUI
 struct SettingsPage: View {
     @ObservedObject var controller: KapitsaProcessController
     @State private var installedModels: [String] = []
+    /// Downloaded models' DFlash2 drafters, which another model can borrow.
+    @State private var drafters: [(model: String, folder: URL)] = []
     @State private var modelStorage: KapitsaModelStorage?
     @State private var useCustomModel = false
     /// What checking a model chosen in Finder found.
@@ -137,10 +139,19 @@ struct SettingsPage: View {
                       helpText: "Requests that run at once, each keeping its conversation ready for instant follow-ups. More requests wait for a free slot. Fewer slots leave more memory for context.")
                 HStack {
                     SettingLabel("Speculative drafter", defaultValue: "Automatic",
-                                 helpText: "Automatic uses the DFlash2 drafter downloaded with the model, which usually speeds up generation. Off decodes with the model's own MTP head and uses less memory.")
-                    Picker("", selection: $controller.configuration.dflash) {
+                                 helpText: "Automatic uses the DFlash2 drafter downloaded with the model, which usually speeds up generation. Off decodes with the model's own MTP head and uses less memory. A model without a drafter of its own, such as a fine-tune or a converted GGUF, can borrow the drafter of the model it was made from: choose that model's drafter. The launcher remembers a borrowed drafter for the chosen model only. It takes about 2 GB of memory, so Kapitsa may give each conversation less context.")
+                    Picker("", selection: drafterSelection) {
                         Text("Automatic").tag("auto")
-                        Text("Off").tag("none")
+                        Text("Off (the model's MTP head)").tag("none")
+                        if !borrowableDrafters.isEmpty || missingDrafter != nil {
+                            Divider()
+                            ForEach(borrowableDrafters, id: \.folder) { drafter in
+                                Text("\(Self.title(of: drafter.model))'s drafter").tag(drafter.folder.path)
+                            }
+                            if let missing = missingDrafter {
+                                Text("\(missing) (no longer on this Mac)").tag(missing)
+                            }
+                        }
                     }
                     .labelsHidden()
                     .frame(width: 230)
@@ -195,8 +206,41 @@ struct SettingsPage: View {
         }
     }
 
+    /// Automatic and Off apply to every model; a borrowed drafter only to the model chosen.
+    private var drafterSelection: Binding<String> {
+        Binding(get: { controller.configuration.drafter }, set: { value in
+            let model = controller.configuration.model
+            if value.hasPrefix("/"), !model.isEmpty {
+                controller.configuration.borrowedDrafters[model] = value
+            } else {
+                controller.configuration.borrowedDrafters[model] = nil
+                if !value.hasPrefix("/") { controller.configuration.dflash = value }
+            }
+        })
+    }
+
+    /// Other models' drafters. None while Kapitsa picks the model, since it's unknown which.
+    private var borrowableDrafters: [(model: String, folder: URL)] {
+        let model = controller.configuration.model
+        guard !model.isEmpty else { return [] }
+        return drafters.filter { !ModelMenu.isSame($0.model, model) }
+    }
+
+    /// A borrowed drafter's folder that has since been deleted, so the picker can still show it.
+    private var missingDrafter: String? {
+        let chosen = controller.configuration.drafter
+        guard chosen.hasPrefix("/"), !drafters.contains(where: { $0.folder.path == chosen }) else { return nil }
+        return chosen
+    }
+
+    /// "Qwen3.8 27B" for a catalog download, else the model's name.
+    static func title(of model: String) -> String {
+        KapitsaConfiguration.catalogModel(forDownloaded: model)?.label ?? model
+    }
+
     private func refreshModels() {
         installedModels = KapitsaModelStorage.installedModels()
+        drafters = KapitsaModelStorage.drafters()
         Task {
             let storage = await Task.detached(priority: .utility) { KapitsaModelStorage.scan() }.value
             modelStorage = storage

@@ -39,6 +39,7 @@ final class KapitsaModelStorageTests: XCTestCase {
         XCTAssertEqual(storage.models.map(\.id), ["qwen3.5-4b:4bit", "qwen3.8-27b:4bit"])
         XCTAssertEqual(storage.models.map(\.bytes), [300, 1_200])
         XCTAssertEqual(storage.models.map(\.hasDrafter), [false, true])
+        XCTAssertEqual(KapitsaModelStorage.drafters(in: root.appendingPathComponent("models")).map(\.model), ["qwen3.8-27b:4bit"])
         XCTAssertEqual(storage.prefixCacheBytes, 50)
         XCTAssertEqual(KapitsaModelStorage.installedModels(in: root.appendingPathComponent("models")),
                        ["qwen3.5-4b:4bit", "qwen3.8-27b:4bit"])

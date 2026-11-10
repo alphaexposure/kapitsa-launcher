@@ -82,6 +82,15 @@ struct KapitsaModelStorage: Equatable {
         folders(in: root).map { modelName(folderName: $0.lastPathComponent) }.sorted()
     }
 
+    /// Downloaded models that have a DFlash2 drafter, by Kapitsa's name, with the drafter's folder.
+    static func drafters(in root: URL = modelsDirectory) -> [(model: String, folder: URL)] {
+        folders(in: root).compactMap { folder in
+            let drafter = folder.appendingPathComponent("dflash2", isDirectory: true)
+            guard FileManager.default.fileExists(atPath: drafter.path) else { return nil }
+            return (modelName(folderName: folder.lastPathComponent), drafter)
+        }.sorted { $0.model < $1.model }
+    }
+
     static func scan(modelsRoot: URL = modelsDirectory,
                      prefixCache: URL = prefixCacheDirectory) -> KapitsaModelStorage {
         let models = folders(in: modelsRoot).map { folder in

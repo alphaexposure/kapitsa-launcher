@@ -9,6 +9,10 @@ struct KapitsaConfiguration: Codable, Equatable {
     var context: String = ""
     var slots: String = ""
     var dflash: String = "auto"
+    /// Another model's DFlash2 drafter folder, by the model setting that borrows it: a fine-tune
+    /// or converted GGUF has no drafter of its own, and can use the one of the model it was made
+    /// from. Used instead of `dflash` while that model is chosen.
+    var borrowedDrafters: [String: String] = [:]
     var memBudget: String = ""
     var prefillChunk: String = ""
     var diskCache: String = ""
@@ -30,6 +34,7 @@ struct KapitsaConfiguration: Codable, Equatable {
         context = value(.context, defaults.context)
         slots = value(.slots, defaults.slots)
         dflash = value(.dflash, defaults.dflash)
+        borrowedDrafters = value(.borrowedDrafters, defaults.borrowedDrafters)
         memBudget = value(.memBudget, defaults.memBudget)
         prefillChunk = value(.prefillChunk, defaults.prefillChunk)
         diskCache = value(.diskCache, defaults.diskCache)
@@ -117,6 +122,11 @@ struct KapitsaConfiguration: Codable, Equatable {
     /// This Mac's memory in GB, as Apple counts it (32 for a 32 GB Mac).
     static var physicalMemoryGB: Int { Int(ProcessInfo.processInfo.physicalMemory >> 30) }
 
+    /// What `--dflash` is given for the chosen model: auto, none, or a borrowed drafter's folder.
+    var drafter: String {
+        model.isEmpty ? dflash : borrowedDrafters[model] ?? dflash
+    }
+
     /// Whether the server only listens on this Mac. Hosts are IPv4 (the port check binds IPv4).
     var isLocalHost: Bool { ["127.0.0.1", "localhost"].contains(host) }
 
@@ -141,6 +151,9 @@ struct KapitsaConfiguration: Codable, Equatable {
             return "Slots must be a number from 1 to 64."
         }
         if !["auto", "none"].contains(dflash) { return "Drafter must be auto or none." }
+        if borrowedDrafters.values.contains(where: { !$0.hasPrefix("/") || $0.contains(where: \.isNewline) }) {
+            return "A borrowed drafter must be a folder's full path."
+        }
         if !memBudget.isEmpty, Double(memBudget).map({ $0 > 0 && $0 < 4096 }) != true {
             return "Memory budget must be a number of GB, such as 24."
         }
