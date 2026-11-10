@@ -58,6 +58,9 @@ final class KapitsaConfigurationTests: XCTestCase {
         XCTAssertNil(error { $0.diskCache = "auto" })
         XCTAssertNotNil(error { $0.diskCache = "-1" })
         XCTAssertNotNil(error { $0.dflash = "/tmp/drafter" })
+        XCTAssertNil(error { $0.borrowedDrafters["huihui"] = "/Users/me/.cache/kapitsa/models/qwen3.8-27b-4bit/dflash2" })
+        XCTAssertNotNil(error { $0.borrowedDrafters["huihui"] = "--help" })
+        XCTAssertNotNil(error { $0.borrowedDrafters["huihui"] = "/tmp/a\nb" })
         XCTAssertNotNil(error { $0.port = 0 })
         XCTAssertNotNil(error { $0.host = " " })
     }
@@ -78,6 +81,19 @@ final class KapitsaConfigurationTests: XCTestCase {
         XCTAssertEqual(decoded.port, 9000)
         XCTAssertEqual(decoded.host, "127.0.0.1")
         XCTAssertEqual(decoded.dflash, "auto")
+    }
+
+    func testABorrowedDrafterIsUsedOnlyWhileItsModelIsChosen() {
+        var configuration = KapitsaConfiguration()
+        configuration.dflash = "none"
+        configuration.borrowedDrafters["huihui"] = "/drafters/27b/dflash2"
+        configuration.model = "huihui"
+        XCTAssertEqual(configuration.drafter, "/drafters/27b/dflash2")
+        XCTAssertEqual(KapitsaServeArguments.serveArguments(configuration).suffix(2), ["--dflash", "/drafters/27b/dflash2"])
+        configuration.model = "35b"
+        XCTAssertEqual(configuration.drafter, "none")
+        configuration.dflash = "auto"
+        XCTAssertFalse(KapitsaServeArguments.serveArguments(configuration).contains("--dflash"))
     }
 
     func testCatalogMenuDescribesEachModelAndWarnsWhenItIsTooBig() throws {

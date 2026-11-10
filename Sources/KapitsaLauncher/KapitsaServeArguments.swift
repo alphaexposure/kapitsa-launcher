@@ -12,7 +12,7 @@ enum KapitsaServeArguments {
         if !configuration.modelID.isEmpty { arguments += ["--model-id", configuration.modelID] }
         if !configuration.context.isEmpty { arguments += ["--context", configuration.context] }
         if !configuration.slots.isEmpty { arguments += ["--slots", configuration.slots] }
-        if configuration.dflash != "auto" { arguments += ["--dflash", configuration.dflash] }
+        if configuration.drafter != "auto" { arguments += ["--dflash", configuration.drafter] }
         if !configuration.memBudget.isEmpty { arguments += ["--mem-budget", configuration.memBudget] }
         if !configuration.prefillChunk.isEmpty { arguments += ["--prefill-chunk", configuration.prefillChunk] }
         if !configuration.diskCache.isEmpty { arguments += ["--disk-cache", configuration.diskCache] }
