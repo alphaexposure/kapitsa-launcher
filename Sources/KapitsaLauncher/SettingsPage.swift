@@ -261,6 +261,10 @@ struct SettingsPage: View {
                     HStack(alignment: .firstTextBaseline, spacing: 12) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(cache.model ?? "Unknown model").font(.caption).textSelection(.enabled)
+                            if let details = Self.details(of: cache) {
+                                Text(details).font(.caption2).foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                             if let status = Self.status(of: cache) {
                                 Text(status).font(.caption2).foregroundStyle(.secondary)
                             }
@@ -295,6 +299,23 @@ struct SettingsPage: View {
         let size = formattedFileSize(caches.reduce(0) { $0 + $1.bytes })
         if caches.count == 1 { return "Clear \(size) for \(caches[0].model ?? "this model")?" }
         return "Clear \(size) of the SSD prefix cache?"
+    }
+
+    /// How the model wrote replies for this part, and when it was last used: a model can have
+    /// one part for each way, and the two otherwise look the same.
+    static func details(of cache: KapitsaModelStorage.PrefixCache) -> String? {
+        let decoding: String? = switch cache.decoding {
+        case .drafter: "With the DFlash2 drafter"
+        case .mtp: cache.modelHasDrafter ? "Without the drafter (MTP), from a context too large for the drafter"
+                                         : "With the model's MTP head"
+        case .plain: "No drafter"
+        case nil: nil
+        }
+        let used = cache.lastUsed.map { "last used " + $0.formatted(.relative(presentation: .named, unitsStyle: .wide)) }
+        let parts = [decoding, used].compactMap { $0 }
+        guard !parts.isEmpty else { return nil }
+        let text = parts.joined(separator: " · ")
+        return text.prefix(1).uppercased() + text.dropFirst()
     }
 
     /// In use, or left behind by a model that's gone.

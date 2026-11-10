@@ -127,6 +127,22 @@ final class KapitsaKnownModelsTests: XCTestCase {
         XCTAssertEqual(KapitsaKnownModels.title("/Users/me/x/Qwen3.5-9B-MLX-4bit").components(separatedBy: " · ").first, "Qwen3.5-9B-MLX-4bit")
     }
 
+    func testAGGUFKapitsaConvertedIsListedOnceByItsConvertedName() {
+        let file = "/Users/me/.lmstudio/models/Huihui-Qwen3.8-27B-abliterated.Q4_K_M/Huihui-Qwen3.8-27B-abliterated.Q4_K_M.gguf"
+        let other = "/Users/me/.lmstudio/models/Other.Q8_0/Other.Q8_0.gguf"
+        let entries = ModelMenu.entries(installed: ["huihui-qwen3.8-27b-abliterated.q4_k_m"], known: [file, other],
+                                        current: "35b", physicalMemoryGB: 32)
+        XCTAssertEqual(entries.onThisMac.map(\.model), ["huihui-qwen3.8-27b-abliterated.q4_k_m", other],
+                       "the converted model alone, not the .gguf it came from; a file not converted yet stays")
+    }
+
+    func testKapitsasNameForTheLoadedCatalogModelIsTheChosenModel() {
+        XCTAssertTrue(ModelMenu.isSame("35b", "qwen3.6-35b-a3b"), "Kapitsa reports a catalog model without its precision")
+        XCTAssertTrue(ModelMenu.isSame("qwen3.6-35b-a3b:4bit", "qwen3.6-35b-a3b"))
+        XCTAssertFalse(ModelMenu.isSame("35b", "huihui-qwen3.8-27b-abliterated.q4_k_m"))
+        XCTAssertFalse(ModelMenu.isSame("27b", "qwen3.6-35b-a3b"))
+    }
+
     func testEachModelIsListedOnce() {
         let entries = ModelMenu.entries(
             installed: ["lmstudio-community/Qwen3.5-2B-MLX-4bit", "qwen3.6-35b-a3b:4bit", "qwen3.8-27b:8bit"],

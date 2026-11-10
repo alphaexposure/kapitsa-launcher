@@ -66,6 +66,19 @@ struct ModelSwitcher: View {
         return Self.name(of: controller.configuration.model)
     }
 
+    /// The model running now, else the one chosen. An app connected to Kapitsa can load another
+    /// model (Kapitsa's `--allow-switch`), so the running one can differ from the one chosen:
+    /// the menu ticks the running one, and choosing the chosen one again switches back to it.
+    private var currentModel: String {
+        let chosen = controller.configuration.model
+        guard controller.state.isRunning, !controller.isStopping, let running = controller.engine.model else { return chosen }
+        // Kapitsa names a catalog model without its precision (`qwen3.6-35b-a3b`), so the one
+        // chosen, which has it, stands for it while it's the same model.
+        if let name = KapitsaThinkingChoice.modelName(forSetting: running),
+           name == KapitsaThinkingChoice.modelName(forSetting: chosen) { return chosen }
+        return running
+    }
+
     /// What the menu's button says: a short name, so a long folder path doesn't stretch the page.
     private var shownName: String { Self.shortName(of: fullName) }
 
@@ -86,7 +99,7 @@ struct ModelSwitcher: View {
     var body: some View {
         Menu {
             choice("", title: "Best model for this Mac")
-            let entries = ModelMenu.entries(installed: installed, known: known, current: controller.configuration.model)
+            let entries = ModelMenu.entries(installed: installed, known: known, current: currentModel)
             if !entries.onThisMac.isEmpty {
                 Section("On this Mac") {
                     ForEach(entries.onThisMac, id: \.model) { choice($0.model, title: $0.title) }
@@ -164,7 +177,7 @@ struct ModelSwitcher: View {
     }
 
     private func select(_ model: String) {
-        guard !ModelMenu.isSame(model, controller.configuration.model) else { return }
+        guard !ModelMenu.isSame(model, currentModel) else { return }
         if !controller.state.isRunning { controller.configuration.model = model }
         else if skipConfirmation { switchTo(model) }
         else { pending = model }
@@ -177,7 +190,7 @@ struct ModelSwitcher: View {
 
     private func choice(_ model: String, title: String) -> some View {
         Button { select(model) } label: {
-            if ModelMenu.isSame(model, controller.configuration.model) { Label(title, systemImage: "checkmark") } else { Text(title) }
+            if ModelMenu.isSame(model, currentModel) { Label(title, systemImage: "checkmark") } else { Text(title) }
         }
     }
 }
@@ -208,13 +221,23 @@ enum ModelMenu {
             }
         }
         for model in known + [current] where !model.isEmpty && !onThisMac.contains(where: { isSame($0.model, model) })
-            && !KapitsaConfiguration.catalogModels.contains(where: { $0.name == model.split(separator: ":").first.map(String.init) }) {
+            && !KapitsaConfiguration.catalogModels.contains(where: { $0.name == model.split(separator: ":").first.map(String.init) })
+            && !installed.contains(importedName(of: model) ?? "") {
             onThisMac.append(Entry(model: model, title: title(ofOther: model)))
         }
         let catalog = KapitsaConfiguration.catalogModels.filter { !downloadedCatalog.contains($0.name) }.map {
             Entry(model: $0.name, title: "\($0.label) (\($0.name)) — \($0.details(physicalMemoryGB: physicalMemoryGB))")
         }
         return (onThisMac, catalog)
+    }
+
+    /// The name Kapitsa gives a .gguf file it converts into its own models folder:
+    /// `Huihui-Qwen3.8-27B-abliterated.Q4_K_M.gguf` becomes `huihui-qwen3.8-27b-abliterated.q4_k_m`.
+    /// Once converted, the menu lists the converted model alone, not the file as well.
+    static func importedName(of model: String) -> String? {
+        guard KapitsaKnownModels.isPath(model), model.lowercased().hasSuffix(".gguf") else { return nil }
+        let file = (model as NSString).lastPathComponent
+        return String(file.dropLast(".gguf".count)).lowercased()
     }
 
     /// "Qwen3.5-2B-MLX-4bit · lmstudio-community" for a repo, the folder and where it is for a path.
@@ -236,6 +259,6 @@ enum ModelMenu {
     private static func variant(of setting: String) -> String? {
         let parts = setting.split(separator: ":").map(String.init)
         if parts.count > 1 { return parts[1] }
-        return KapitsaConfiguration.catalogModels.first { $0.name == setting }?.variant
+        return KapitsaConfiguration.catalogModels.first { $0.name == setting || $0.id == setting }?.variant
     }
 }

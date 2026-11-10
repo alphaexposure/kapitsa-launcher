@@ -24,6 +24,30 @@ struct KapitsaModelStorage: Equatable {
         var inUse = false
         /// Its model's folder is gone (`kapitsa rm`, or moved), so nothing will use it again.
         var modelIsGone = false
+        /// How the model wrote replies when this part was made. Kapitsa keeps a separate part
+        /// for each, so one model can have two.
+        var decoding: Decoding?
+        /// When Kapitsa last wrote to it.
+        var lastUsed: Date?
+        /// Its model came with a DFlash2 drafter, so an MTP part means the drafter was left out.
+        var modelHasDrafter = false
+    }
+
+    /// How a model writes replies, from the `decoding:` line of a prefix cache's `about.txt`.
+    enum Decoding: Equatable {
+        /// With the separate DFlash2 drafter, the faster way.
+        case drafter
+        /// With the model's own MTP head, when the context leaves no room for the drafter.
+        case mtp
+        /// Without speculative decoding.
+        case plain
+
+        init?(aboutLine line: String) {
+            if line.contains("DFlash2") { self = .drafter }
+            else if line.contains("MTP") { self = .mtp }
+            else if line.contains("no drafter") { self = .plain }
+            else { return nil }
+        }
     }
 
     let models: [Model]
@@ -66,20 +90,38 @@ struct KapitsaModelStorage: Equatable {
                   hasDrafter: FileManager.default.fileExists(atPath: folder.appendingPathComponent("dflash2").path))
         }.sorted { $0.id < $1.id }
         let caches = folders(in: prefixCache).map { folder in
-            let modelFolder = cachedModelFolder(in: folder)
+            let about = try? String(contentsOf: folder.appendingPathComponent("about.txt"), encoding: .utf8)
+            let modelFolder = about.flatMap(cachedModelFolder(about:))
             return PrefixCache(folder: folder, model: modelFolder.map { modelName(folderName: $0.lastPathComponent) },
                                bytes: size(of: folder), inUse: isLocked(folder),
-                               modelIsGone: modelFolder.map { !FileManager.default.fileExists(atPath: $0.path) } ?? false)
+                               modelIsGone: modelFolder.map { !FileManager.default.fileExists(atPath: $0.path) } ?? false,
+                               decoding: about.flatMap(decoding(about:)),
+                               lastUsed: lastWritten(folder),
+                               modelHasDrafter: modelFolder.map { FileManager.default.fileExists(atPath: $0.appendingPathComponent("dflash2").path) } ?? false)
         }.sorted { $0.bytes > $1.bytes }
         return KapitsaModelStorage(models: models, prefixCaches: caches)
     }
 
     /// The model folder a prefix cache folder belongs to, from the `model: <folder>` line of its `about.txt`.
     static func cachedModelFolder(in folder: URL) -> URL? {
-        guard let about = try? String(contentsOf: folder.appendingPathComponent("about.txt"), encoding: .utf8),
-              let line = about.split(separator: "\n").first(where: { $0.hasPrefix("model: ") }) else { return nil }
+        guard let about = try? String(contentsOf: folder.appendingPathComponent("about.txt"), encoding: .utf8) else { return nil }
+        return cachedModelFolder(about: about)
+    }
+
+    static func cachedModelFolder(about: String) -> URL? {
+        guard let line = about.split(separator: "\n").first(where: { $0.hasPrefix("model: ") }) else { return nil }
         let path = line.dropFirst("model: ".count).trimmingCharacters(in: .whitespaces)
         return path.isEmpty ? nil : URL(fileURLWithPath: path, isDirectory: true)
+    }
+
+    static func decoding(about: String) -> Decoding? {
+        about.split(separator: "\n").first(where: { $0.hasPrefix("decoding: ") }).flatMap { Decoding(aboutLine: String($0)) }
+    }
+
+    /// The newest change to the part or the folders it keeps conversations in.
+    private static func lastWritten(_ folder: URL) -> Date? {
+        let dates = [folder] + ["kv", "st", "e"].map { folder.appendingPathComponent($0) }
+        return dates.compactMap { try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate }.max()
     }
 
     /// Whether a running Kapitsa holds the part's lock. The shared lock taken to check is let
