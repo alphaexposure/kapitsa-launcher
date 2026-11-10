@@ -167,6 +167,7 @@ struct OverviewPage: View {
             }
             .font(.callout).padding(18).background(KapitsaTheme.panel, in: RoundedRectangle(cornerRadius: 12))
             latestRequestSection
+            ConnectAppPanel(controller: controller)
         }
     }
 

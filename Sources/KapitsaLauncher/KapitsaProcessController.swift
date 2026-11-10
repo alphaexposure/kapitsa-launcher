@@ -135,6 +135,22 @@ final class KapitsaProcessController: ObservableObject {
         return components.url
     }
 
+    /// How another app reaches the server: the running one's settings, else the ones Start uses.
+    func appConnection(installed: [String]) -> KapitsaAppConnection {
+        let running = state.isRunning ? activeConfiguration : nil
+        let settings = running ?? configuration
+        let live = readiness == .ready && !isStopping && running != nil
+        return KapitsaAppConnection(host: settings.host, port: settings.port, modelID: settings.modelID,
+                                    engineModel: live ? engine.model : nil, configured: settings.model,
+                                    installed: installed, needsAPIKey: running != nil ? activeAPIKey != nil : hasAPIKey)
+    }
+
+    /// The API key apps need, read only when it is copied: the running server's, else the saved one.
+    func apiKeyForApps() -> String? {
+        if state.isRunning { return activeAPIKey }
+        return try? keyStore.read()
+    }
+
     /// What `--model` was given for the server running now, to find its folder; nil when stopped.
     var runningModelSetting: String? { state.isRunning ? activeConfiguration?.model : nil }
 
