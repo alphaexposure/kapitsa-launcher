@@ -85,4 +85,31 @@ final class KapitsaModelStorageTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: caches.appendingPathComponent("aaa").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: caches.appendingPathComponent("bbb/kv/1.bin").path))
     }
+
+    func testAModelsTwoPrefixCachePartsSayHowEachWroteReplies() throws {
+        let caches = root.appendingPathComponent("prefix-cache")
+        let model = "model: /Users/me/.cache/kapitsa/models/qwen3.8-27b-4bit\n"
+        try write(300, to: "prefix-cache/aaa/kv/1.bin")
+        try ("Kapitsa SSD prefix cache\n" + model + "states: qwen35\ndecoding: DFlash2 drafter (4-bit), its context ring\n")
+            .write(to: caches.appendingPathComponent("aaa/about.txt"), atomically: true, encoding: .utf8)
+        try write(200, to: "prefix-cache/bbb/kv/1.bin")
+        try ("Kapitsa SSD prefix cache\n" + model + "decoding: MTP head: its KV rows and gathered draft rows\n")
+            .write(to: caches.appendingPathComponent("bbb/about.txt"), atomically: true, encoding: .utf8)
+        try write(100, to: "prefix-cache/ccc/kv/1.bin")
+        try ("Kapitsa SSD prefix cache\nmodel: /x/qwen3.5-4b-4bit\ndecoding: no drafter\n")
+            .write(to: caches.appendingPathComponent("ccc/about.txt"), atomically: true, encoding: .utf8)
+
+        var parts = KapitsaModelStorage.scan(modelsRoot: root.appendingPathComponent("models"), prefixCache: caches).prefixCaches
+        XCTAssertEqual(parts.map(\.model), ["qwen3.8-27b:4bit", "qwen3.8-27b:4bit", "qwen3.5-4b:4bit"])
+        XCTAssertEqual(SettingsPage.details(of: parts[1])?.hasPrefix("With the model's MTP head · "), true,
+                       "a model without a drafter only ever uses its MTP head")
+        parts[1].modelHasDrafter = true
+        XCTAssertEqual(parts.map(\.decoding), [.drafter, .mtp, .plain])
+        XCTAssertNotNil(parts[0].lastUsed)
+
+        let details = parts.map { SettingsPage.details(of: $0) ?? "" }
+        XCTAssertTrue(details[0].hasPrefix("With the DFlash2 drafter · last used "), details[0])
+        XCTAssertTrue(details[1].hasPrefix("Without the drafter (MTP), from a context too large for the drafter · last used "), details[1])
+        XCTAssertTrue(details[2].hasPrefix("No drafter · last used "), details[2])
+    }
 }
